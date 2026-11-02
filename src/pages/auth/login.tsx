@@ -7,14 +7,14 @@ import { loginSchema } from '../../api/schemas'
 import { validateForm, type FieldErrors } from '../../utils/zodErrors'
 
 type LoginProps = {
-  /** called with the entered email and password, throw an Error to show a message */
-  onLogin?: (email: string, password: string) => Promise<void> | void
+  /** called with the entered username and password, throw an Error to show a message */
+  onLogin?: (username: string, password: string) => Promise<void> | void
 }
 
-type Values = { email: string; password: string }
+type Values = { username: string; password: string }
 
 export function Login({ onLogin }: LoginProps) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<FieldErrors<Values>>({})
@@ -24,7 +24,7 @@ export function Login({ onLogin }: LoginProps) {
     e.preventDefault()
     setError(null)
 
-    const result = validateForm<Values>(loginSchema, { email, password })
+    const result = validateForm<Values>(loginSchema, { username, password })
     if (result.errors) {
       setErrors(result.errors)
       return
@@ -33,7 +33,7 @@ export function Login({ onLogin }: LoginProps) {
 
     setLoading(true)
     try {
-      await onLogin?.(result.data.email, result.data.password)
+      await onLogin?.(result.data.username, result.data.password)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.')
     } finally {
@@ -57,18 +57,17 @@ export function Login({ onLogin }: LoginProps) {
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <TextInput
-            label="Email"
-            placeholder="you@fundora.co.tz"
-            type="email"
-            autoComplete="email"
-            value={email}
+            label="Username"
+            placeholder="admin"
+            autoComplete="username"
+            value={username}
             onChange={(e) => {
-              setEmail(e.currentTarget.value)
-              setErrors((x) => ({ ...x, email: undefined }))
+              setUsername(e.currentTarget.value)
+              setErrors((x) => ({ ...x, username: undefined }))
               setError(null)
             }}
-            leftSection={<AppIcon name="mail" />}
-            error={errors.email}
+            leftSection={<AppIcon name="user-round" />}
+            error={errors.username}
           />
 
           <div>

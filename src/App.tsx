@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes, useLocation} from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth/authContext'
 import { RequirePermission } from './pages/auth/requirePermission'
 import { Login } from './pages/auth/login'
@@ -51,16 +51,36 @@ function ProtectedRoute() {
 
 function LoginRoute() {
   const { isAuthenticated, login } = useAuth()
+  const navigate = useNavigate()
   // already logged in -> skip the login page
   if (isAuthenticated) return <Navigate to="/" replace />
 
-  // on success the session is set and the line above redirects to the dashboard
-  return <Login onLogin={login} />
+  return (
+    <Login
+      onLogin={async (username, password) => {
+        const result = await login(username, password)
+        // 2FA is on: the code was emailed, go and ask for it
+        if (result.status === 'two-factor') {
+          navigate('/two-factor', {
+            state: {
+              twoFactorToken: result.twoFactorToken,
+              message: result.message,
+              username: result.username,
+            },
+          })
+        }
+        // otherwise the session is set and the check above redirects to the dashboard
+      }}
+    />
+  )
 }
 
 function TwoFactorRoute() {
   const { isAuthenticated } = useAuth()
+  const state = useLocation().state as { twoFactorToken?: string } | null
   if (isAuthenticated) return <Navigate to="/" replace />
+  // opened directly, without having signed in first
+  if (!state?.twoFactorToken) return <Navigate to="/login" replace />
   return <TwoFactor />
 }
 

@@ -3,14 +3,22 @@ import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, PasswordInput, Text, TextInput } from '@mantine/core'
 import logo from '../../assets/logo.png'
-
-const EMAIL = /^\S+@\S+\.\S+$/
-
-// the API requires at least 8 characters (minPasswordLength in /api/security/settings)
-const MIN_LENGTH = 8
+import { MIN_PASSWORD, resetPasswordSchema, type ResetPasswordInput } from '../../api/schemas'
+import { resetPasswordRequest } from '../../api/auth'
+import { validateForm, type FieldErrors } from '../../utils/zodErrors'
 
 type LocationState = { email?: string } | null
-type Errors = Partial<Record<'email' | 'code' | 'password' | 'confirm', string>>
+type Errors = FieldErrors<ResetPasswordInput>
+
+// decides which field an API message belongs to, the order matters
+// ("No pending password reset request..." also contains the word password)
+function fieldFor(message: string): keyof Errors | null {
+  const m = message.toLowerCase()
+  if (m.includes('pending')) return 'email'
+  if (m.includes('code')) return 'code'
+  if (m.includes('password')) return 'newPassword'
+  return null
+}
 
 export function ResetPassword() {
   const navigate = useNavigate()
@@ -21,38 +29,41 @@ export function ResetPassword() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [errors, setErrors] = useState<Errors>({})
+  // an error that does not belong to one field, like a network problem
+  const [formError, setFormError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<string | null>(null)
 
-  const clear = (key: keyof Errors) => setErrors((e) => ({ ...e, [key]: undefined }))
+  const clear = (key: keyof Errors) => {
+    setErrors((e) => ({ ...e, [key]: undefined }))
+    setFormError(null)
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    setFormError(null)
 
-    const found: Errors = {}
-    const value = email.trim()
-
-    if (!value) found.email = 'Enter your email address'
-    else if (!EMAIL.test(value)) found.email = 'Enter a valid email address'
-
-    if (!/^\d{6}$/.test(code)) found.code = 'Enter the 6-digit code'
-
-    if (password.length < MIN_LENGTH) found.password = `New password must be at least ${MIN_LENGTH} characters`
-    if (!found.password && confirm !== password) found.confirm = 'The two passwords do not match'
-
-    // UI only: these codes are here so the API error messages can be previewed
-    if (!found.code && code === '000000') found.code = 'Invalid reset code'
-    if (!found.code && code === '111111') found.code = 'Reset code has expired'
-
-    setErrors(found)
-    if (Object.keys(found).length > 0) return
+    const result = validateForm<ResetPasswordInput>(resetPasswordSchema, {
+      email,
+      code,
+      newPassword: password,
+      confirm,
+    })
+    if (result.errors) {
+      setErrors(result.errors)
+      return
+    }
+    setErrors({})
 
     setLoading(true)
     try {
-      // TODO: POST /api/auth/reset-password { email, code, newPassword }
-      //       the code expires after 5 minutes and works once
-      await new Promise((resolve) => setTimeout(resolve, 600))
-      setDone(true)
+      const res = await resetPasswordRequest(result.data.email, result.data.code, result.data.newPassword)
+      setDone(res.message)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not reset the password. Please try again.'
+      const field = fieldFor(message)
+      if (field) setErrors({ [field]: message })
+      else setFormError(message)
     } finally {
       setLoading(false)
     }
@@ -83,7 +94,7 @@ export function ResetPassword() {
         {done ? (
           <div className="space-y-4">
             <Alert color="green" variant="light" icon={<AppIcon name="circle-check" />}>
-              <Text size="sm">Password reset successfully.</Text>
+              <Text size="sm">{done}</Text>
             </Alert>
             <Button fullWidth onClick={() => navigate('/login', { replace: true })}>
               Go to sign in
@@ -124,17 +135,17 @@ export function ResetPassword() {
 
             <PasswordInput
               label="New password"
-              description={`At least ${MIN_LENGTH} characters`}
+              description={`At least ${MIN_PASSWORD} characters`}
               placeholder="New password"
               autoComplete="new-password"
               leftSection={<AppIcon name="lock-keyhole" />}
               value={password}
               onChange={(e) => {
                 setPassword(e.currentTarget.value)
-                clear('password')
+                clear('newPassword')
                 clear('confirm')
               }}
-              error={errors.password}
+              error={errors.newPassword}
             />
 
             <PasswordInput
@@ -149,6 +160,12 @@ export function ResetPassword() {
               }}
               error={errors.confirm}
             />
+
+            {formError && (
+              <Text size="xs" c="red">
+                {formError}
+              </Text>
+            )}
 
             <Button type="submit" fullWidth loading={loading}>
               Reset password
@@ -165,7 +182,11 @@ export function ResetPassword() {
             Back to sign in
           </Link>
           {!done && (
-            <Link to="/forgot-password" className="text-brand-dark no-underline hover:underline">
+            <Link
+              to="/forgot-password"
+              state={{ email: email.trim() }}
+              className="text-brand-dark no-underline hover:underline"
+            >
               Send a new code
             </Link>
           )}

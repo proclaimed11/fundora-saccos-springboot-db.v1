@@ -1,47 +1,48 @@
 import { AppIcon } from '../../components/appIcon'
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, Text, TextInput } from '@mantine/core'
 import logo from '../../assets/logo.png'
+import { forgotPasswordSchema } from '../../api/schemas'
+import { forgotPasswordRequest } from '../../api/auth'
+import { validateForm } from '../../utils/zodErrors'
 
-const EMAIL = /^\S+@\S+\.\S+$/
+type LocationState = { email?: string } | null
 
 export function ForgotPassword() {
   const navigate = useNavigate()
+  const state = useLocation().state as LocationState
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(state?.email ?? '')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
+  // the message the API answered with, set once the code has been sent
+  const [sentMessage, setSentMessage] = useState<string | null>(null)
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    setError(undefined)
 
-    const value = email.trim()
-    if (!value) {
-      setError('Enter your email address')
-      return
-    }
-    if (!EMAIL.test(value)) {
-      setError('Enter a valid email address')
-      return
-    }
-    // UI only: this address is here so the "Email not found" message can be previewed
-    if (value.toLowerCase() === 'unknown@example.com') {
-      setError('Email not found')
+    const result = validateForm<{ email: string }>(forgotPasswordSchema, { email })
+    if (result.errors) {
+      setError(result.errors.email)
       return
     }
 
     setLoading(true)
     try {
-      // TODO: POST /api/auth/forgot-password { email }
-      //       the API emails a 6-digit code that expires after 5 minutes and works once
-      await new Promise((resolve) => setTimeout(resolve, 600))
-      setSent(true)
+      const res = await forgotPasswordRequest(result.data.email)
+      setEmail(result.data.email)
+      setSentMessage(res.message)
+    } catch (err) {
+      // for example "Email not found", or the network error from the client
+      setError(err instanceof Error ? err.message : 'Could not send the code. Please try again.')
     } finally {
       setLoading(false)
     }
   }
+
+  const sent = sentMessage !== null
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-content-background p-4">
@@ -68,9 +69,7 @@ export function ForgotPassword() {
         {sent ? (
           <div className="space-y-4">
             <Alert color="green" variant="light" icon={<AppIcon name="circle-check" />}>
-              <Text size="sm">
-                A password reset code has been sent to <span className="font-medium">{email.trim()}</span>.
-              </Text>
+              <Text size="sm">{sentMessage}</Text>
               <Text size="xs" c="dimmed" mt={4}>
                 The code expires in 5 minutes and works once.
               </Text>
@@ -79,7 +78,7 @@ export function ForgotPassword() {
             <Button
               fullWidth
               leftSection={<AppIcon name="mail" />}
-              onClick={() => navigate('/reset-password', { state: { email: email.trim() } })}
+              onClick={() => navigate('/reset-password', { state: { email } })}
             >
               I have the code
             </Button>
@@ -89,8 +88,8 @@ export function ForgotPassword() {
               variant="subtle"
               color="gray"
               onClick={() => {
-                setSent(false)
-                setEmail('')
+                setSentMessage(null)
+                setError(undefined)
               }}
             >
               Use a different email

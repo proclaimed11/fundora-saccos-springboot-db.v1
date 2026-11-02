@@ -12,7 +12,7 @@ const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 const IDLE_MINUTES = 30
 const ABSOLUTE_HOURS = 12
 
-type Notice = { text: string; color: 'green' | 'blue' } | null
+type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -83,7 +83,7 @@ const account = {
             variant="light"
             withCloseButton
             onClose={() => setNotice(null)}
-            icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'info'} />}
+            icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : notice.color === 'red' ? 'circle-x' : 'info'} />}
           >
             <Text size="sm">{notice.text}</Text>
           </Alert>

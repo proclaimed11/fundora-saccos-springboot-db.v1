@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { useNavigate } from 'react-router-dom'
 import { setUnauthorizedHandler } from '../api/client'
 import { tokenStore } from '../api/token'
-import { loginRequest, logoutRequest } from '../api/auth'
+import { loginRequest, logoutRequest, toggleTwoFactorRequest, verifyTwoFactorRequest } from '../api/auth'
+import type { LoginResponse } from '../api/schemas'
 
 export type AuthUser = {
   id: number
@@ -12,12 +13,22 @@ export type AuthUser = {
   email: string
   /** role name from the API, must match a role name on the Roles page */
   role: string | null
+  /** the API has no "is 2FA on" call, so this is true when the user signed in through the 2FA step */
+  twoFactor: boolean
 }
+
+// a sign-in either finishes, or needs the emailed code first
+export type LoginResult =
+  | { status: 'signed-in' }
+  | { status: 'two-factor'; twoFactorToken: string; message: string; username: string }
 
 type AuthContextValue = {
   isAuthenticated: boolean
   user: AuthUser | null
-  login: (email: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<LoginResult>
+  verifyTwoFactor: (twoFactorToken: string, code: string) => Promise<void>
+  /** turns two-factor on or off for the signed-in user, returns the API message */
+  setTwoFactorEnabled: (enabled: boolean) => Promise<string>
   logout: () => void
 }
 
@@ -29,7 +40,10 @@ const toName = (username: string) => username.charAt(0).toUpperCase() + username
 function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
-    return raw ? (JSON.parse(raw) as AuthUser) : null
+    if (!raw) return null
+    // a user saved before the twoFactor flag existed has no such field, so it counts as "off"
+    const saved = JSON.parse(raw) as Omit<AuthUser, 'twoFactor'> & { twoFactor?: boolean }
+    return { ...saved, twoFactor: saved.twoFactor ?? false }
   } catch {
     return null
   }
@@ -58,30 +72,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate])
 
-  const login = async (email: string, password: string) => {
-    const res = await loginRequest(email.trim(), password)
+  const saveUser = (next: AuthUser) => {
+    localStorage.setItem(USER_KEY, JSON.stringify(next))
+    setUser(next)
+  }
 
-    // 2FA is not supported in this screen yet
-    if (!res.token) {
-      throw new Error(
-        res.requiresTwoFactor
-          ? 'This account uses two-factor sign-in, which is not available yet.'
-          : 'The server did not return a session token.',
-      )
-    }
-
-    const next: AuthUser = {
+  // both the plain login and the 2FA step end here
+  const startSession = (res: LoginResponse, sessionToken: string, twoFactor: boolean) => {
+    tokenStore.set(sessionToken)
+    setToken(sessionToken)
+    saveUser({
       id: res.userId,
       username: res.username,
       name: toName(res.username),
-      email: res.email ?? email.trim(),
+      email: res.email ?? '',
       role: res.role ?? null,
+      twoFactor,
+    })
+  }
+
+  const login = async (username: string, password: string): Promise<LoginResult> => {
+    const res = await loginRequest(username.trim(), password)
+
+    // 2FA is on: no token yet, the code was emailed and the twoFactorToken identifies this attempt
+    if (res.requiresTwoFactor) {
+      if (!res.twoFactorToken) throw new Error('The server did not return a two-factor session.')
+      return {
+        status: 'two-factor',
+        twoFactorToken: res.twoFactorToken,
+        message: res.message ?? 'A 2FA code was sent to your email.',
+        username: res.username,
+      }
     }
 
-    tokenStore.set(res.token)
-    localStorage.setItem(USER_KEY, JSON.stringify(next))
-    setToken(res.token)
-    setUser(next)
+    if (!res.token) throw new Error('The server did not return a session token.')
+    startSession(res, res.token, false)
+    return { status: 'signed-in' }
+  }
+
+  const verifyTwoFactor = async (twoFactorToken: string, code: string) => {
+    const res = await verifyTwoFactorRequest(twoFactorToken, code)
+    if (!res.token) throw new Error('The server did not return a session token.')
+    startSession(res, res.token, true)
+  }
+
+  const setTwoFactorEnabled = async (enabled: boolean) => {
+    const res = await toggleTwoFactorRequest(enabled)
+    if (user) saveUser({ ...user, twoFactor: enabled })
+    return res.message
   }
 
   const logout = () => {
@@ -91,7 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: !!token && !!user, user, login, logout }}>
+    <AuthContext.Provider
+      value={{ isAuthenticated: !!token && !!user, user, login, verifyTwoFactor, setTwoFactorEnabled, logout }}
+    >
       {children}
     </AuthContext.Provider>
   )

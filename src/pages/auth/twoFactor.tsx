@@ -1,9 +1,11 @@
 import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Alert, Button, Text, TextInput } from '@mantine/core'
 import logo from '../../assets/logo.png'
+import { twoFactorSchema, type TwoFactorInput } from '../../api/schemas'
 import { useAuth } from '../../auth/authContext'
+import { validateForm } from '../../utils/zodErrors'
 
 // the API says the emailed code expires after 5 minutes
 const CODE_MINUTES = 5
@@ -12,19 +14,21 @@ const CODE_MINUTES = 5
 const clock = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 
-type LocationState = { username?: string; email?: string } | null
+type LocationState = { twoFactorToken?: string; message?: string; username?: string } | null
 
 export function TwoFactor() {
-  const navigate = useNavigate()
-  const { login } = useAuth()
+  const { verifyTwoFactor } = useAuth()
   const state = useLocation().state as LocationState
 
   const [code, setCode] = useState('')
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(CODE_MINUTES * 60)
+  // the sign-in attempt itself is gone, only signing in again helps
+  const [sessionLost, setSessionLost] = useState(false)
 
   const expired = secondsLeft <= 0
+  const blocked = expired || sessionLost
 
   // count down once a second until the code expires
   useEffect(() => {
@@ -35,28 +39,29 @@ export function TwoFactor() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (blocked || !state?.twoFactorToken) return
 
-    if (expired) {
-      setError('2FA code has expired')
-      return
-    }
-    if (!/^\d{6}$/.test(code)) {
-      setError('Enter the 6-digit code')
-      return
-    }
-    // UI only: 000000 is here so the error message can be previewed
-    if (code === '000000') {
-      setError('Invalid 2FA code')
+    const result = validateForm<TwoFactorInput>(twoFactorSchema, { code })
+    if (result.errors) {
+      setError(result.errors.code)
       return
     }
 
     setLoading(true)
     try {
-      // TODO: POST /api/auth/verify-2fa { twoFactorToken, code }, then store the returned token
-      await login(state?.username ?? 'user', 'verified')
-      navigate('/', { replace: true })
+      // on success the session is set and the route redirects to the dashboard
+      await verifyTwoFactor(state.twoFactorToken, result.data.code)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not verify the code. Please try again.')
+      const message = err instanceof Error ? err.message : 'Could not verify the code. Please try again.'
+      const m = message.toLowerCase()
+      if (m.includes('session')) {
+        // "Invalid or expired two-factor session"
+        setSessionLost(true)
+      } else if (m.includes('expired')) {
+        // "2FA code has expired"
+        setSecondsLeft(0)
+      }
+      setError(message)
     } finally {
       setLoading(false)
     }
@@ -78,9 +83,7 @@ export function TwoFactor() {
             Two-factor verification
           </Text>
           <Text size="sm" c="dimmed" mt={4}>
-            {state?.email
-              ? `A 6-digit code was sent to ${state.email}.`
-              : 'A 6-digit code was sent to your email address.'}
+            {state?.message ?? 'A 6-digit code was sent to your email address.'}
           </Text>
         </div>
 
@@ -92,7 +95,7 @@ export function TwoFactor() {
             inputMode="numeric"
             maxLength={6}
             autoFocus
-            disabled={expired}
+            disabled={blocked}
             styles={{ input: { letterSpacing: 8, textAlign: 'center', fontSize: 20 } }}
             value={code}
             onChange={(e) => {
@@ -102,10 +105,12 @@ export function TwoFactor() {
             error={error}
           />
 
-          {expired ? (
+          {blocked ? (
             <Alert color="red" variant="light" icon={<AppIcon name="clock" />}>
               <Text size="xs">
-                This code has expired. Go back to sign in to get a new one.
+                {sessionLost
+                  ? 'This sign-in attempt has ended. Go back to sign in to get a new code.'
+                  : 'This code has expired. Go back to sign in to get a new one.'}
               </Text>
             </Alert>
           ) : (
@@ -118,7 +123,7 @@ export function TwoFactor() {
             </Text>
           )}
 
-          <Button type="submit" fullWidth loading={loading} disabled={expired}>
+          <Button type="submit" fullWidth loading={loading} disabled={blocked}>
             Verify and sign in
           </Button>
         </form>
