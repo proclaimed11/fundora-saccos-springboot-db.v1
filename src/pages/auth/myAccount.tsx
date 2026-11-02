@@ -33,12 +33,12 @@ function SectionTitle({ children }: { children: string }) {
 
 export function MyAccountPage() {
 const { logout, user } = useAuth()
-  const account = {
-    name: user?.name ?? '',
-    username: user?.email.split('@')[0] ?? '',
-    email: user?.email ?? '',
-    role: user?.role ?? 'No role',
-  }
+const account = {
+  name: user?.name ?? '',
+  username: user?.username ?? '',
+  email: user?.email || 'Not available',
+  role: user?.role ?? 'No role',
+}
 
   // UI only: the switch changes for this session, nothing is saved yet
   const [twoFactor, setTwoFactor] = useState(false)

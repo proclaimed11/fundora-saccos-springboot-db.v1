@@ -6,9 +6,10 @@ export const MIN_PASSWORD = 8
 /* ---------- requests (also used to validate the forms) ---------- */
 
 export const loginSchema = z.object({
-  username: z.string().trim().min(1, 'Enter your username'),
+  email: z.string().trim().min(1, 'Enter your email address').email('Enter a valid email address'),
   password: z.string().min(1, 'Enter your password'),
 })
+
 export type LoginInput = z.infer<typeof loginSchema>
 
 export const twoFactorSchema = z.object({
@@ -43,11 +44,13 @@ export const loginResponseSchema = z.object({
   message: z.string().optional(),
   userId: z.number(),
   username: z.string(),
+  email: z.string().optional(),
   role: z.string().nullable().optional(),
   token: z.string().optional(),
   requiresTwoFactor: z.boolean().optional(),
   twoFactorToken: z.string().optional(),
 })
+
 export type LoginResponse = z.infer<typeof loginResponseSchema>
 
 // forgot password, reset password, logout and 2fa toggle all answer with { success, message }

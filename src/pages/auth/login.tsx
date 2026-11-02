@@ -3,30 +3,37 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, PasswordInput, Text, TextInput } from '@mantine/core'
 import logo from '../../assets/logo.png'
+import { loginSchema } from '../../api/schemas'
+import { validateForm, type FieldErrors } from '../../utils/zodErrors'
 
 type LoginProps = {
-  /** called with the entered credentials, throw an Error to show a message */
-  onLogin?: (username: string, password: string) => Promise<void> | void
+  /** called with the entered email and password, throw an Error to show a message */
+  onLogin?: (email: string, password: string) => Promise<void> | void
 }
 
+type Values = { email: string; password: string }
+
 export function Login({ onLogin }: LoginProps) {
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState<FieldErrors<Values>>({})
   const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
 
-    if (!username.trim() || !password) {
-      setError('Enter your email and password')
+    const result = validateForm<Values>(loginSchema, { email, password })
+    if (result.errors) {
+      setErrors(result.errors)
       return
     }
+    setErrors({})
 
     setLoading(true)
     try {
-      await onLogin?.(username.trim(), password)
+      await onLogin?.(result.data.email, result.data.password)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.')
     } finally {
@@ -51,14 +58,17 @@ export function Login({ onLogin }: LoginProps) {
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <TextInput
             label="Email"
-            placeholder="admin@saccos.com"
-            autoComplete="username"
-            value={username}
+            placeholder="you@fundora.co.tz"
+            type="email"
+            autoComplete="email"
+            value={email}
             onChange={(e) => {
-              setUsername(e.currentTarget.value)
+              setEmail(e.currentTarget.value)
+              setErrors((x) => ({ ...x, email: undefined }))
               setError(null)
             }}
             leftSection={<AppIcon name="mail" />}
+            error={errors.email}
           />
 
           <div>
@@ -69,9 +79,11 @@ export function Login({ onLogin }: LoginProps) {
               value={password}
               onChange={(e) => {
                 setPassword(e.currentTarget.value)
+                setErrors((x) => ({ ...x, password: undefined }))
                 setError(null)
               }}
               leftSection={<AppIcon name="lock-keyhole" />}
+              error={errors.password}
             />
             <div className="mt-1.5 text-right">
               <Link
