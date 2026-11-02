@@ -26,9 +26,10 @@ import {
   type JournalLine,
   type LoanApplication,
 } from './loanApplicationsData'
+import { CURRENT_USER } from '../../auth/currentUser'
 
-// SAMPLE ONLY: the logged-in user comes from the session later
-export const CURRENT_USER = 'Asha Mrema'
+// the other pages still import it from here
+export { CURRENT_USER }
 
 /* ---------- journal table, also used by the details drawer ---------- */
 

@@ -51,6 +51,8 @@ type LogProps = {
 
 type LogErrors = Partial<Record<'outcome' | 'description', string>>
 
+//const defaultAssignee = () => (COLLECTORS.includes(CURRENT_USER) ? CURRENT_USER : null)
+
 export function LogActivityDialog({ opened, caseNo, borrower, onClose, onSubmit }: LogProps) {
   const [type, setType] = useState<ActivityType>('PHONE_CALL')
   const [outcome, setOutcome] = useState<ActivityOutcome | null>(null)

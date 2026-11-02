@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { setUnauthorizedHandler } from '../api/client'
 import { tokenStore } from '../api/token'
 import { loginRequest, logoutRequest, toggleTwoFactorRequest, verifyTwoFactorRequest } from '../api/auth'
+import { getUserRequest } from '../api/users'
 import type { LoginResponse } from '../api/schemas'
+import { setCurrentUser } from './currentUser'
 
 export type AuthUser = {
   id: number
@@ -11,9 +13,10 @@ export type AuthUser = {
   /** display name, built from the username until the API returns one */
   name: string
   email: string
+  phone: string
   /** role name from the API, must match a role name on the Roles page */
   role: string | null
-  /** the API has no "is 2FA on" call, so this is true when the user signed in through the 2FA step */
+  /** from the user record, so it is true when two-factor is switched on for this account */
   twoFactor: boolean
 }
 
@@ -41,9 +44,12 @@ function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
-    // a user saved before the twoFactor flag existed has no such field, so it counts as "off"
-    const saved = JSON.parse(raw) as Omit<AuthUser, 'twoFactor'> & { twoFactor?: boolean }
-    return { ...saved, twoFactor: saved.twoFactor ?? false }
+    // a user saved before newer fields existed has no such field, so it gets a default
+    const saved = JSON.parse(raw) as Omit<AuthUser, 'twoFactor' | 'phone'> & {
+      twoFactor?: boolean
+      phone?: string
+    }
+    return { ...saved, twoFactor: saved.twoFactor ?? false, phone: saved.phone ?? '' }
   } catch {
     return null
   }
@@ -53,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const [token, setToken] = useState<string | null>(() => tokenStore.get())
   const [user, setUser] = useState<AuthUser | null>(loadUser)
+
+  // the pages stamp actions with this name, keep it in step with the signed-in user
+  setCurrentUser(user?.name ?? 'User')
 
   const clear = () => {
     tokenStore.clear()
@@ -77,6 +86,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(next)
   }
 
+  // the login answer has no email, phone or two-factor state, so they come from the user record.
+  // If it fails, the sign-in still works without them (a 401 is handled by the client).
+  const loadProfile = async (userId: number) => {
+    try {
+      const profile = await getUserRequest(userId)
+      const current = loadUser()
+      if (!current || current.id !== userId) return
+      saveUser({
+        ...current,
+        email: profile.email ?? current.email,
+        phone: profile.phone ?? current.phone,
+        twoFactor: profile.isTwoFactorEnabled ?? profile.twoFactorEnabled ?? current.twoFactor,
+      })
+    } catch {
+      // keep what we have
+    }
+  }
+
+  // after a refresh the saved user is used, so fetch the details again.
+  // This also finds out early when the token is no longer valid.
+  useEffect(() => {
+    const saved = loadUser()
+    if (tokenStore.get() && saved) void loadProfile(saved.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // both the plain login and the 2FA step end here
   const startSession = (res: LoginResponse, sessionToken: string, twoFactor: boolean) => {
     tokenStore.set(sessionToken)
@@ -86,9 +121,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username: res.username,
       name: toName(res.username),
       email: res.email ?? '',
+      phone: '',
       role: res.role ?? null,
       twoFactor,
     })
+    void loadProfile(res.userId)
   }
 
   const login = async (username: string, password: string): Promise<LoginResult> => {

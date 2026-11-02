@@ -59,3 +59,16 @@ export const messageResponseSchema = z.object({
   message: z.string(),
 })
 export type MessageResponse = z.infer<typeof messageResponseSchema>
+
+// GET /api/users/{id}. zod drops fields it doesn't list, so passwordHash never reaches the UI state.
+export const userSchema = z.object({
+  id: z.number(),
+  username: z.string(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  // the JSON name of a boolean depends on how the backend declares it, so accept both
+  isTwoFactorEnabled: z.boolean().optional(),
+  twoFactorEnabled: z.boolean().optional(),
+})
+
+export type UserRecord = z.infer<typeof userSchema>

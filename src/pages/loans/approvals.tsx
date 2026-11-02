@@ -23,10 +23,7 @@ import {
   type LoanApplication,
 } from './loanApplicationsData'
 import { usePageAccess } from '../auth/usePageAccess'
-
-// SAMPLE ONLY: the roles of the logged-in user, come from the session later.
-// In the preview this user holds two roles so the whole approval chain can be tried.
-const MY_ROLES = ['Loan Officer', 'Approver']
+import { useAuth } from '../../auth/authContext'
 
 // our own rule, the API has no deadline: highlight applications waiting longer than this
 const LATE_AFTER_DAYS = 7
@@ -54,7 +51,7 @@ type Made = { decision: 'APPROVED' | 'REJECTED'; comments: string }
 const MIN_REJECT_COMMENT = 5
 const MAX_COMMENT = 500
 
-function toRow(a: LoanApplication, made: Made[]): Row {
+function toRow(a: LoanApplication, made: Made[], role: string | null): Row {
   const queue = [...made]
   const levels: ApprovalRow[] = approvalsFor(a).map((l) => {
     if (l.decision === 'PENDING' && queue.length > 0) {
@@ -81,7 +78,7 @@ function toRow(a: LoanApplication, made: Made[]): Row {
     levels,
     current,
     awaiting,
-    mine: awaiting && !!current && MY_ROLES.includes(current.role),
+    mine: awaiting && !!current && role !== null && current.role === role,
     rejected,
     approved,
   }
@@ -456,13 +453,15 @@ function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
 /* ---------- page ---------- */
 
 export function ApprovalsPage() {
+  const { user } = useAuth()
+  const role = user?.role ?? null
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   // UI only: decisions made in this session, nothing is saved yet
   const [decisions, setDecisions] = useState<Record<number, Made[]>>({})
   const [notice, setNotice] = useState<{ text: string; color: 'green' | 'red' } | null>(null)
 
-  const rows = useMemo(() => applications.map((a) => toRow(a, decisions[a.id] ?? [])), [decisions])
+  const rows = useMemo(() => applications.map((a) => toRow(a, decisions[a.id] ?? [], role)), [decisions, role])
   const awaiting = rows.filter((r) => r.awaiting)
   const mine = awaiting.filter((r) => r.mine)
   const decided = rows.filter((r) => r.approved || r.rejected)

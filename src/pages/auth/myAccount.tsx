@@ -32,18 +32,22 @@ function SectionTitle({ children }: { children: string }) {
 }
 
 export function MyAccountPage() {
-const { logout, user } = useAuth()
+const { logout, user, setTwoFactorEnabled } = useAuth()
 const account = {
   name: user?.name ?? '',
   username: user?.username ?? '',
   email: user?.email || 'Not available',
+  phone: user?.phone || 'Not available',
   role: user?.role ?? 'No role',
 }
 
   // UI only: the switch changes for this session, nothing is saved yet
-  const [twoFactor, setTwoFactor] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
+  // whether this account signs in with an emailed code, kept on the signed-in user
+  // the saved flag of the signed-in user, it changes when the toggle call succeeds
+  const twoFactor = user?.twoFactor ?? false
+  const [saving, setSaving] = useState(false)
 
   // success banners fade away on their own
   useEffect(() => {
@@ -52,17 +56,22 @@ const account = {
     return () => clearTimeout(t)
   }, [notice])
 
-  const confirmToggle = () => {
-    // TODO: POST /api/auth/2fa/toggle { enabled: !twoFactor } (needs the session token)
+  const confirmToggle = async () => {
+    if (saving) return
     const next = !twoFactor
-    setTwoFactor(next)
-    setNotice({
-      color: next ? 'green' : 'blue',
-      text: next
-        ? 'Two-factor authentication enabled. You will get an emailed code at every sign-in.'
-        : 'Two-factor authentication disabled. You only need your password to sign in.',
-    })
-    setConfirmOpen(false)
+    setSaving(true)
+    try {
+      const message = await setTwoFactorEnabled(next)
+      setNotice({ color: next ? 'green' : 'blue', text: message })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: err instanceof Error ? err.message : 'Could not change two-factor sign-in. Please try again.',
+      })
+    } finally {
+      setSaving(false)
+      setConfirmOpen(false)
+    }
   }
 
   return (
@@ -124,6 +133,7 @@ const account = {
               <Field label="Full name" value={account.name} />
               <Field label="Username" value={account.username} />
               <Field label="Email" value={account.email} />
+              <Field label="Phone" value={account.phone} />
               <Field label="Role" value={account.role} />
               <p className="mt-2 text-xs text-gray-500">
                 These details are managed by an administrator on the Users page.
@@ -148,6 +158,7 @@ const account = {
                 </div>
                 <Switch
                   checked={twoFactor}
+                  disabled={saving}
                   onChange={() => setConfirmOpen(true)}
                   aria-label="Two-factor authentication"
                 />

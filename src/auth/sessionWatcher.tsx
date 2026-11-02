@@ -4,6 +4,7 @@ import { Button, Modal, Text } from '@mantine/core'
 import { AppIcon } from '../components/appIcon'
 import { SAMPLE_SETTINGS } from '../pages/administration/security/securityData'
 import { useAuth } from './authContext'
+import { tokenStore } from '../api/token'
 
 // TODO: the limits come from GET /api/security/settings
 const NORMAL = {
@@ -15,7 +16,6 @@ const NORMAL = {
 // open the app with ?sessiondemo=1 (a full reload) and stay still for 30 seconds to see the warning
 const DEMO = { idle: 45_000, absolute: 10 * 60_000, warn: 15_000 }
 
-const STARTED_KEY = 'pt_session_started'
 const ACTIVITY = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'] as const
 
 type Warning = { ms: number; reason: 'idle' | 'absolute' }
@@ -36,7 +36,7 @@ export function SessionWatcher() {
   const lastActive = useRef(Date.now())
   const warned = useRef(false)
   // the 12 hour limit counts from sign-in, so it survives a page refresh
-  const started = useRef(Number(window.localStorage.getItem(STARTED_KEY)) || Date.now())
+  const started = useRef(tokenStore.startedAt() ?? Date.now())
   const expire = useRef(() => {})
 
   useEffect(() => {
@@ -45,21 +45,6 @@ export function SessionWatcher() {
       logout()
     }
   })
-
-  useEffect(() => {
-    try {
-      if (!window.localStorage.getItem(STARTED_KEY)) window.localStorage.setItem(STARTED_KEY, String(started.current))
-    } catch {
-      // storage can be blocked, the idle timer still works
-    }
-    return () => {
-      try {
-        window.localStorage.removeItem(STARTED_KEY)
-      } catch {
-        // nothing to clean up
-      }
-    }
-  }, [])
 
   // any activity restarts the idle timer, but not once the warning is showing
   useEffect(() => {
