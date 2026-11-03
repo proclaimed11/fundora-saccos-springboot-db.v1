@@ -2,6 +2,7 @@ import { AppIcon } from '../../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Modal, PasswordInput, Select, SimpleGrid, Text, TextInput } from '@mantine/core'
 import { roleStyle, type User } from './usersData'
+import { useMinPasswordLength } from '../../../api/security'
 
 const EMAIL = /^\S+@\S+\.\S+$/
 const PHONE = /^0\d{9}$/
@@ -43,6 +44,7 @@ export function UserDialog({
   onClose,
   onSubmit,
 }: UserDialogProps) {
+  const minLength = useMinPasswordLength()
   const editing = user !== null
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
@@ -77,7 +79,7 @@ export function UserDialog({
     if (!phone.trim()) found.phone = 'Enter a phone number'
     else if (!PHONE.test(phone.trim())) found.phone = 'Enter 10 digits starting with 0'
     if (!role) found.role = 'Select a role'
-    if (!editing && password.length < 8) found.password = 'Use at least 8 characters'
+    if (!editing && password.length < minLength) found.password = `Use at least ${minLength} characters`
 
     setErrors(found)
     if (Object.keys(found).length > 0 || !role) return
@@ -120,7 +122,7 @@ export function UserDialog({
         {!editing && (
           <PasswordInput
             label="Temporary password"
-            description="At least 8 characters. The user should change it after the first sign-in."
+            description={`At least ${minLength} characters. The user should change it after the first sign-in.`}
             size="sm"
             value={password}
             onChange={(e) => { setPassword(e.currentTarget.value); clear('password') }}
@@ -158,6 +160,7 @@ type ResetProps = {
 }
 
 export function ResetPasswordDialog({ opened, userName, saving = false, serverError, onClose, onSubmit }: ResetProps) {
+  const minLength = useMinPasswordLength()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string>()
@@ -170,7 +173,7 @@ export function ResetPasswordDialog({ opened, userName, saving = false, serverEr
   }
 
   const submit = () => {
-    if (password.length < 8) return setError('Use at least 8 characters')
+    if (password.length < minLength) return setError(`Use at least ${minLength} characters`)
     if (password !== confirm) return setError('The two passwords do not match')
     setError(undefined)
     onSubmit(password)

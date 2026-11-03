@@ -6,7 +6,8 @@ import { loginRequest, logoutRequest, toggleTwoFactorRequest, verifyTwoFactorReq
 import { getUserRequest } from '../api/users'
 import type { LoginResponse } from '../api/schemas'
 import { setCurrentUser } from './currentUser'
-import { clearSessionStart, markSessionStart } from './sessionClock'
+import { markSessionStart } from './sessionClock'
+import { queryClient } from '../api/queryClient'
 
 export type AuthUser = {
   id: number
@@ -64,13 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the pages stamp actions with this name, keep it in step with the signed-in user
   setCurrentUser(user?.name ?? 'User')
 
-  const clear = () => {
-    tokenStore.clear()
-    localStorage.removeItem(USER_KEY)
-    clearSessionStart()
-    setToken(null)
-    setUser(null)
-  }
+const clear = () => {
+  tokenStore.clear()
+  localStorage.removeItem(USER_KEY)
+  queryClient.clear() // the next user must not see this user's cached data
+  setToken(null)
+  setUser(null)
+}
 
   // a 401 from a protected call ends the session and shows the session expired page
   useEffect(() => {

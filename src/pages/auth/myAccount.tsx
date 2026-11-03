@@ -5,12 +5,9 @@ import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { ContractConfirmDialog } from '../loans/contractDialogs'
 import { useAuth } from '../../auth/authContext'
 import { initials } from '../applicants/applicantsData'
+import { useSecuritySettings } from '../../api/security'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
-
-// the session limits from the API (GET /api/security/settings)
-const IDLE_MINUTES = 30
-const ABSOLUTE_HOURS = 12
 
 type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
 
@@ -40,6 +37,10 @@ const account = {
   phone: user?.phone || 'Not available',
   role: user?.role ?? 'No role',
 }
+
+const { data: security } = useSecuritySettings()
+const IDLE_MINUTES = security?.idleTimeoutMinutes ?? 30
+const ABSOLUTE_HOURS = security?.absoluteTimeoutHours ?? 12
 
   // UI only: the switch changes for this session, nothing is saved yet
   const [confirmOpen, setConfirmOpen] = useState(false)

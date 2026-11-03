@@ -2,6 +2,12 @@ import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { SAMPLE_SETTINGS } from '../pages/administration/security/securityData'
+import { MIN_PASSWORD } from './schemas'
+
+export function useMinPasswordLength() {
+  const { data } = useSecuritySettings()
+  return data?.minPasswordLength ?? MIN_PASSWORD
+}
 
 const settingsSchema = z.object({
   data: z.object({

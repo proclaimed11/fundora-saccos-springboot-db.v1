@@ -15,6 +15,7 @@ import { ResetPasswordDialog, UserDialog, type UserInput } from './userDialogs'
 import { ROLE_STYLE, activityFor, roleStyle, type User } from './usersData'
 import { usePageAccess } from '../../auth/usePageAccess'
 import { Can } from '../../auth/requirePermission'
+import { useMinPasswordLength } from '../../../api/security'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -202,6 +203,7 @@ export function UsersPage() {
 
   const usersQuery = useApiUsers()
   const rolesQuery = useApiRoles()
+  const minLength = useMinPasswordLength()
   const { create, update, remove } = useUserMutations()
 
   const [tab, setTab] = useState<TabKey>('all')
@@ -573,7 +575,7 @@ export function UsersPage() {
                 />
               </div>
               <Text size="xs" c="dimmed">
-                Passwords must have at least 8 characters
+                Passwords must have at least {minLength} characters
               </Text>
             </div>
 
