@@ -7,6 +7,7 @@ import { StatWidget } from '../../../components/statsWidgets'
 import { SAMPLE_USERS } from '../users/usersData'
 import { LIMITS, SAMPLE_SETTINGS, type SecuritySettings } from './securityData'
 import { usePageAccess } from '../../auth/usePageAccess'
+import { useSecuritySettings } from '../../../api/security'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -33,7 +34,6 @@ export function SecurityPage() {
   const [values, setValues] = useState<Values>({ ...SAMPLE_SETTINGS })
   const [errors, setErrors] = useState<Errors>({})
   const [notice, setNotice] = useState<Notice>(null)
-
   // success banners fade away on their own
   useEffect(() => {
     if (!notice) return
@@ -42,6 +42,16 @@ export function SecurityPage() {
   }, [notice])
 
   const dirty = JSON.stringify(values) !== JSON.stringify(saved)
+
+  const { data: serverSettings } = useSecuritySettings()
+
+  // when the server values arrive, show them (unless there are unsaved edits)
+  useEffect(() => {
+    if (!serverSettings || dirty) return
+    setSaved(serverSettings)
+    setValues({ ...serverSettings })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverSettings])
 
   // SAMPLE ONLY: the same sample users as the Users page
   const activeUsers = SAMPLE_USERS.filter((u) => u.active)

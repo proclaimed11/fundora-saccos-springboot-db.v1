@@ -6,10 +6,11 @@ import {
   type MessageResponse,
 } from './schemas'
 
-export const loginRequest = (username: string, password: string) =>
+// the login body key: the API document says "username", change to { email, password } if your server wants email
+export const loginRequest = (login: string, password: string) =>
   api<LoginResponse>('/api/auth/login', {
     method: 'POST',
-    body: { username, password },
+    body: { username: login, password },
     schema: loginResponseSchema,
     public: true,
   })
@@ -17,7 +18,6 @@ export const loginRequest = (username: string, password: string) =>
 export const logoutRequest = () =>
   api('/api/auth/logout', { method: 'POST', schema: messageResponseSchema })
 
-// emails a 6-digit code, it expires after 5 minutes and works once
 export const forgotPasswordRequest = (email: string) =>
   api<MessageResponse>('/api/auth/forgot-password', {
     method: 'POST',
@@ -34,7 +34,6 @@ export const resetPasswordRequest = (email: string, code: string, newPassword: s
     public: true,
   })
 
-  // completes a 2FA sign-in, answers like the login does (with the session token)
 export const verifyTwoFactorRequest = (twoFactorToken: string, code: string) =>
   api<LoginResponse>('/api/auth/verify-2fa', {
     method: 'POST',
@@ -43,7 +42,6 @@ export const verifyTwoFactorRequest = (twoFactorToken: string, code: string) =>
     public: true,
   })
 
-// needs the session token, it changes the signed-in user's own account
 export const toggleTwoFactorRequest = (enabled: boolean) =>
   api<MessageResponse>('/api/auth/2fa/toggle', {
     method: 'POST',

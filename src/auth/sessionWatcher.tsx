@@ -2,16 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Modal, Text } from '@mantine/core'
 import { AppIcon } from '../components/appIcon'
-import { SAMPLE_SETTINGS } from '../pages/administration/security/securityData'
 import { useAuth } from './authContext'
 import { tokenStore } from '../api/token'
-
-// TODO: the limits come from GET /api/security/settings
-const NORMAL = {
-  idle: SAMPLE_SETTINGS.idleTimeoutMinutes * 60_000,
-  absolute: SAMPLE_SETTINGS.absoluteTimeoutHours * 3_600_000,
-  warn: 2 * 60_000,
-}
+import { useMemo } from 'react'
+import { useSecuritySettings } from '../api/security'
 
 // open the app with ?sessiondemo=1 (a full reload) and stay still for 30 seconds to see the warning
 const DEMO = { idle: 45_000, absolute: 10 * 60_000, warn: 15_000 }
@@ -28,8 +22,18 @@ const clock = (ms: number) => {
 export function SessionWatcher() {
   const { logout } = useAuth()
   const navigate = useNavigate()
-  const [limits] = useState(() =>
-    new URLSearchParams(window.location.search).has('sessiondemo') ? DEMO : NORMAL,
+  const { data: settings } = useSecuritySettings()
+  const demo = useMemo(() => new URLSearchParams(window.location.search).has('sessiondemo'), [])
+  const limits = useMemo(
+    () =>
+      demo
+        ? DEMO
+        : {
+            idle: (settings?.idleTimeoutMinutes ?? 30) * 60_000,
+            absolute: (settings?.absoluteTimeoutHours ?? 12) * 3_600_000,
+            warn: 2 * 60_000,
+          },
+    [demo, settings],
   )
   const [warning, setWarning] = useState<Warning | null>(null)
 
