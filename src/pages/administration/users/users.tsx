@@ -1,24 +1,29 @@
 import { AppIcon } from '../../../components/appIcon'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
+import { PageState } from '../../../components/pageState'
 import { CustomTable, type CustomTableColumn } from '../../../components/customTable/customTable'
 import { ContractConfirmDialog } from '../../loans/contractDialogs'
-import { CURRENT_USER } from '../../loans/disbursementDialog'
 import { initials } from '../../applicants/applicantsData'
+import { useAuth } from '../../../auth/authContext'
+import { useApiRoles, useApiUsers, useUserMutations, toUser, userBody } from '../../../api/users'
 import { ResetPasswordDialog, UserDialog, type UserInput } from './userDialogs'
-import { ROLES, ROLE_STYLE, SAMPLE_USERS, activityFor, type User } from './usersData'
+import { ROLE_STYLE, activityFor, roleStyle, type User } from './usersData'
 import { usePageAccess } from '../../auth/usePageAccess'
 import { Can } from '../../auth/requirePermission'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
 type TabKey = 'all' | 'active' | 'inactive'
-type Notice = { text: string; color: 'green' | 'blue' } | null
-type DialogState = { kind: 'create' } | { kind: 'edit' | 'password' | 'status' | 'twofa'; id: number } | null
+type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
+type DialogState =
+  | { kind: 'create' }
+  | { kind: 'edit' | 'password' | 'status' | 'twofa' | 'delete'; id: number }
+  | null
 
 const TAB_EMPTY: Record<TabKey, string> = {
   all: 'No users yet',
@@ -26,7 +31,7 @@ const TAB_EMPTY: Record<TabKey, string> = {
   inactive: 'No inactive users',
 }
 
-const roleOptions = ROLES.map((r) => ({ value: r, label: r }))
+const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
 
 /* ---------- small pieces ---------- */
 
@@ -56,7 +61,7 @@ function RoleBadge({ role }: { role: User['role'] }) {
     )
   }
   return (
-    <Badge variant="light" color={ROLE_STYLE[role].color} radius="sm" size="sm">
+    <Badge variant="light" color={roleStyle(role).color} radius="sm" size="sm">
       {role}
     </Badge>
   )
@@ -128,12 +133,11 @@ function UserDrawerBody({ user: u, blocked, onEdit, onReset, onStatus }: DrawerP
 
       <div>
         <SectionTitle>User details</SectionTitle>
-        <Field label="Full name" value={u.name} />
         <Field label="Username" value={u.username} />
-        <Field label="Email" value={u.email} />
-        <Field label="Phone" value={u.phone} />
-        <Field label="Approval level" value={u.role ? ROLE_STYLE[u.role].level : '—'} />
-        <Field label="Created" value={dayjs(u.created).format('MMM D, YYYY')} />
+        <Field label="Email" value={u.email || '—'} />
+        <Field label="Phone" value={u.phone || '—'} />
+        <Field label="Approval level" value={u.role ? roleStyle(u.role).level : '—'} />
+        <Field label="Created" value={u.created ? dayjs(u.created).format('MMM D, YYYY') : '—'} />
       </div>
 
       <div>
@@ -164,15 +168,15 @@ function UserDrawerBody({ user: u, blocked, onEdit, onReset, onStatus }: DrawerP
 
       <div className="flex flex-wrap gap-2">
         <Can area="administration" page="users" action="edit">
-            <Button size="xs" leftSection={<AppIcon name="pencil" />} onClick={() => onEdit(u)}>
-              Edit
-            </Button>
+          <Button size="xs" leftSection={<AppIcon name="pencil" />} onClick={() => onEdit(u)}>
+            Edit
+          </Button>
         </Can>
         <Can area="administration" page="users" action="edit">
-            <Button size="xs" variant="default" leftSection={<AppIcon name="key-round" />} onClick={() => onReset(u)}>
-              Reset password
-            </Button>
-          </Can>
+          <Button size="xs" variant="default" leftSection={<AppIcon name="key-round" />} onClick={() => onReset(u)}>
+            Reset password
+          </Button>
+        </Can>
         <Can area="administration" page="users" action="edit">
           <Button
             size="xs"
@@ -194,13 +198,18 @@ function UserDrawerBody({ user: u, blocked, onEdit, onReset, onStatus }: DrawerP
 
 export function UsersPage() {
   const [params, setParams] = useSearchParams()
+  const { user: me } = useAuth()
 
-  // UI only: changes made in this session, nothing is saved yet
-  const [users, setUsers] = useState<User[]>(SAMPLE_USERS)
+  const usersQuery = useApiUsers()
+  const rolesQuery = useApiRoles()
+  const { create, update, remove } = useUserMutations()
+
   const [tab, setTab] = useState<TabKey>('all')
   const [dialog, setDialog] = useState<DialogState>(null)
   const [notice, setNotice] = useState<Notice>(null)
-  const { canCreate, canEdit } = usePageAccess('administration', 'users')
+  // an error from the API shown inside the open dialog
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  const { canCreate, canEdit, canDelete } = usePageAccess('administration', 'users')
 
   // success banners fade away on their own
   useEffect(() => {
@@ -208,6 +217,16 @@ export function UsersPage() {
     const t = setTimeout(() => setNotice(null), 9000)
     return () => clearTimeout(t)
   }, [notice])
+
+  const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data])
+  const roleNames = roles.filter((r) => r.isActive).map((r) => r.name)
+  const roleOptions = roles.map((r) => ({ value: r.name, label: r.name }))
+
+  // the real rows of the users table
+  const users = useMemo<User[]>(
+    () => (usersQuery.data ?? []).map((raw) => toUser(raw, roles)),
+    [usersQuery.data, roles],
+  )
 
   const active = users.filter((u) => u.active)
   const inactive = users.filter((u) => !u.active)
@@ -222,12 +241,22 @@ export function UsersPage() {
     { label: 'Two-factor On', value: users.filter((u) => u.twoFactor).length, icon: 'shield', color: '#8e44ad' },
   ]
 
+  const isMe = (u: User) => !!me && u.username === me.username
+  const activeAdmins = active.filter((u) => u.role === 'Admin')
+
   // you cannot deactivate yourself or the last active Admin
   const blockReason = (u: User): string | null => {
-    if (u.name === CURRENT_USER) return 'You cannot deactivate your own account.'
-    if (u.role === 'Admin' && u.active && active.filter((x) => x.role === 'Admin').length <= 1) {
+    if (isMe(u)) return 'You cannot deactivate your own account.'
+    if (u.role === 'Admin' && u.active && activeAdmins.length <= 1) {
       return 'This is the last active Admin, so it cannot be deactivated.'
     }
+    return null
+  }
+
+  // the same protection for delete, and a user who already signed in has history in the audit trail
+  const deleteBlock = (u: User): string | null => {
+    if (isMe(u)) return 'You cannot delete your own account.'
+    if (u.role === 'Admin' && activeAdmins.length <= 1 && u.active) return 'This is the last active Admin, so it cannot be deleted.'
     return null
   }
 
@@ -239,57 +268,110 @@ export function UsersPage() {
 
   const dialogUser = dialog && dialog.kind !== 'create' ? users.find((u) => u.id === dialog.id) : undefined
 
-  /* ---------- actions ---------- */
+  const open = (next: DialogState) => {
+    setDialogError(null)
+    setDialog(next)
+  }
 
-  const save = (input: UserInput) => {
-    if (dialog?.kind === 'create') {
-      const id = Math.max(0, ...users.map((u) => u.id)) + 1
-      const { password: _password, ...rest } = input
-      setUsers((list) => [
-        ...list,
-        { id, ...rest, active: true, twoFactor: false, lastLogin: null, created: dayjs().format('YYYY-MM-DD') },
-      ])
-      setNotice({ color: 'green', text: `User ${input.name} was created.` })
-    } else if (dialogUser) {
-      const { password: _password, ...rest } = input
-      setUsers((list) => list.map((u) => (u.id === dialogUser.id ? { ...u, ...rest } : u)))
-      setNotice({ color: 'green', text: `User ${input.name} was updated.` })
+  /* ---------- actions, each one calls the API ---------- */
+
+  const save = async (input: UserInput) => {
+    // the full name has no column yet, so input.name is not sent
+    const roleId = roles.find((r) => r.name === input.role)?.id ?? null
+    setDialogError(null)
+
+    try {
+      if (dialog?.kind === 'create') {
+        await create.mutateAsync({
+          username: input.username,
+          email: input.email,
+          phone: input.phone,
+          roleId,
+          isActive: true,
+          isTwoFactorEnabled: false,
+          passwordHash: input.password,
+        })
+        setNotice({ color: 'green', text: `User ${input.username} was created.` })
+      } else if (dialogUser) {
+        await update.mutateAsync({
+          id: dialogUser.id,
+          body: userBody(dialogUser, { username: input.username, email: input.email, phone: input.phone, roleId }),
+        })
+        setNotice({ color: 'green', text: `User ${input.username} was updated.` })
+      }
+      setDialog(null)
+    } catch (err) {
+      setDialogError(messageOf(err, 'Could not save the user.'))
+    }
+  }
+
+  const toggleStatus = async () => {
+    if (!dialogUser) return
+    if (dialogUser.active && blockReason(dialogUser)) return
+    try {
+      await update.mutateAsync({ id: dialogUser.id, body: userBody(dialogUser, { isActive: !dialogUser.active }) })
+      setNotice({
+        color: 'blue',
+        text: `${dialogUser.name} was ${dialogUser.active ? 'deactivated and can no longer sign in' : 'activated'}.`,
+      })
+    } catch (err) {
+      setNotice({ color: 'red', text: messageOf(err, 'Could not change the status.') })
     }
     setDialog(null)
   }
 
-  const toggleStatus = () => {
+  const toggleTwoFactor = async () => {
     if (!dialogUser) return
-    if (dialogUser.active && blockReason(dialogUser)) return
-    setUsers((list) => list.map((u) => (u.id === dialogUser.id ? { ...u, active: !u.active } : u)))
-    setNotice({
-      color: 'blue',
-      text: `${dialogUser.name} was ${dialogUser.active ? 'deactivated and can no longer sign in' : 'activated'}.`,
-    })
+    try {
+      await update.mutateAsync({
+        id: dialogUser.id,
+        body: userBody(dialogUser, { isTwoFactorEnabled: !dialogUser.twoFactor }),
+      })
+      setNotice({
+        color: 'blue',
+        text: `Two-factor sign-in is now ${dialogUser.twoFactor ? 'off' : 'on'} for ${dialogUser.name}.`,
+      })
+    } catch (err) {
+      setNotice({ color: 'red', text: messageOf(err, 'Could not change two-factor sign-in.') })
+    }
     setDialog(null)
   }
 
-  const toggleTwoFactor = () => {
+  const resetPassword = async (password: string) => {
     if (!dialogUser) return
-    setUsers((list) => list.map((u) => (u.id === dialogUser.id ? { ...u, twoFactor: !u.twoFactor } : u)))
-    setNotice({
-      color: 'blue',
-      text: `Two-factor sign-in is now ${dialogUser.twoFactor ? 'off' : 'on'} for ${dialogUser.name}.`,
-    })
-    setDialog(null)
+    setDialogError(null)
+    try {
+      // the API checks the length and hashes the plain password
+      await update.mutateAsync({ id: dialogUser.id, body: userBody(dialogUser, { passwordHash: password }) })
+      setNotice({ color: 'green', text: `The password for ${dialogUser.name} was reset.` })
+      setDialog(null)
+    } catch (err) {
+      setDialogError(messageOf(err, 'Could not reset the password.'))
+    }
   }
 
-  const resetPassword = () => {
-    if (!dialogUser) return
-    setNotice({ color: 'green', text: `The password for ${dialogUser.name} was reset.` })
+  const removeUser = async () => {
+    if (!dialogUser || deleteBlock(dialogUser)) return
+    try {
+      await remove.mutateAsync(dialogUser.id)
+      setNotice({ color: 'blue', text: `User ${dialogUser.name} was deleted.` })
+      if (selected?.id === dialogUser.id) closeView()
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `${messageOf(err, 'Could not delete the user.')} A user with sessions or history may need to be deactivated instead.`,
+      })
+    }
     setDialog(null)
   }
 
   // the drawer buttons close the drawer first, then open the dialog
   const fromDrawer = (kind: 'edit' | 'password' | 'status', u: User) => {
     closeView()
-    setDialog({ kind, id: u.id })
+    open({ kind, id: u.id })
   }
+
+  const saving = create.isPending || update.isPending
 
   /* ---------- columns ---------- */
 
@@ -314,7 +396,9 @@ export function UsersPage() {
       render: (u) => (
         <div>
           <RoleBadge role={u.role} />
-          {u.role && <div className="mt-0.5 text-[11px] text-gray-500">{ROLE_STYLE[u.role].level}</div>}
+          {u.role && u.role in ROLE_STYLE && (
+            <div className="mt-0.5 text-[11px] text-gray-500">{roleStyle(u.role).level}</div>
+          )}
         </div>
       ),
       exportValue: (u) => u.role ?? 'No role',
@@ -355,6 +439,7 @@ export function UsersPage() {
       width: 80,
       render: (u) => {
         const blocked = blockReason(u)
+        const delBlocked = deleteBlock(u)
         return (
           // stop the click so the row doesn't also open the drawer
           <div onClick={(e) => e.stopPropagation()}>
@@ -365,32 +450,46 @@ export function UsersPage() {
                 </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown>
-              {canEdit && (
+                {canEdit && (
                   <>
-                <Menu.Item fw={500} leftSection={<AppIcon name="pencil" />} onClick={() => setDialog({ kind: 'edit', id: u.id })}>
-                  Edit user
-                </Menu.Item>
-                <Menu.Item leftSection={<AppIcon name="key-round" />} onClick={() => setDialog({ kind: 'password', id: u.id })}>
-                  Reset password
-                </Menu.Item>
-                <Menu.Item leftSection={<AppIcon name="shield" />} onClick={() => setDialog({ kind: 'twofa', id: u.id })}>
-                  {u.twoFactor ? 'Turn off two-factor' : 'Turn on two-factor'}
-                </Menu.Item>
-                <Menu.Divider />
+                    <Menu.Item fw={500} leftSection={<AppIcon name="pencil" />} onClick={() => open({ kind: 'edit', id: u.id })}>
+                      Edit user
+                    </Menu.Item>
+                    <Menu.Item leftSection={<AppIcon name="key-round" />} onClick={() => open({ kind: 'password', id: u.id })}>
+                      Reset password
+                    </Menu.Item>
+                    <Menu.Item leftSection={<AppIcon name="shield" />} onClick={() => open({ kind: 'twofa', id: u.id })}>
+                      {u.twoFactor ? 'Turn off two-factor' : 'Turn on two-factor'}
+                    </Menu.Item>
+                    <Menu.Divider />
                   </>
                 )}
                 <Menu.Item leftSection={<AppIcon name="eye" />} onClick={() => openView(u.id)}>
                   View details
                 </Menu.Item>
-                <Menu.Divider />
-                <Menu.Item
-                  color={u.active ? 'red' : undefined}
-                  disabled={u.active && !!blocked}
-                  leftSection={<AppIcon name={u.active ? 'user-round-x' : 'circle-check'} />}
-                  onClick={() => setDialog({ kind: 'status', id: u.id })}
-                >
-                  {u.active ? (blocked ? 'Cannot deactivate' : 'Deactivate user') : 'Activate user'}
-                </Menu.Item>
+                {canEdit && (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Item
+                      color={u.active ? 'red' : undefined}
+                      disabled={u.active && !!blocked}
+                      leftSection={<AppIcon name={u.active ? 'user-round-x' : 'circle-check'} />}
+                      onClick={() => open({ kind: 'status', id: u.id })}
+                    >
+                      {u.active ? (blocked ? 'Cannot deactivate' : 'Deactivate user') : 'Activate user'}
+                    </Menu.Item>
+                  </>
+                )}
+                {canDelete && (
+                  <Menu.Item
+                    color="red"
+                    disabled={!!delBlocked}
+                    leftSection={<AppIcon name="trash" />}
+                    onClick={() => open({ kind: 'delete', id: u.id })}
+                  >
+                    {delBlocked ? 'Cannot delete' : 'Delete user'}
+                  </Menu.Item>
+                )}
               </Menu.Dropdown>
             </Menu>
           </div>
@@ -399,6 +498,13 @@ export function UsersPage() {
     },
   ]
 
+  const loading = usersQuery.isLoading || rolesQuery.isLoading
+  const loadError = usersQuery.error ?? rolesQuery.error
+  const retry = () => {
+    usersQuery.refetch()
+    rolesQuery.refetch()
+  }
+
   return (
     <DashboardLayout
       title="Users"
@@ -406,83 +512,90 @@ export function UsersPage() {
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Administration' }, { label: 'Users' }]}
       actions={
         canCreate ? (
-        <Button size="xs" leftSection={<AppIcon name="plus" />} onClick={() => setDialog({ kind: 'create' })}>
-          New user
-        </Button>
+          <Button
+            size="xs"
+            disabled={roleNames.length === 0}
+            leftSection={<AppIcon name="plus" />}
+            onClick={() => open({ kind: 'create' })}
+          >
+            New user
+          </Button>
         ) : undefined
       }
     >
-      <div className="space-y-4">
-        {notice && (
-          <Alert
-            color={notice.color}
-            variant="light"
-            withCloseButton
-            onClose={() => setNotice(null)}
-            icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'info'} />}
-          >
-            <Text size="sm">{notice.text}</Text>
-          </Alert>
-        )}
+      <PageState loading={loading} error={loadError ? messageOf(loadError, 'Could not load the users.') : null} onRetry={retry}>
+        <div className="space-y-4">
+          {notice && (
+            <Alert
+              color={notice.color}
+              variant="light"
+              withCloseButton
+              onClose={() => setNotice(null)}
+              icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : notice.color === 'red' ? 'circle-x' : 'info'} />}
+            >
+              <Text size="sm">{notice.text}</Text>
+            </Alert>
+          )}
 
-        {noRole.length > 0 && (
-          <Alert color="yellow" variant="light" icon={<AppIcon name="triangle-alert" />}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Text size="sm">
-                {noRole.length} {noRole.length === 1 ? 'user has' : 'users have'} no role assigned yet.
-              </Text>
-              <Button size="compact-xs" variant="default" onClick={() => openView(noRole[0].id)}>
-                Review user
-              </Button>
-            </div>
-          </Alert>
-        )}
+          {noRole.length > 0 && (
+            <Alert color="yellow" variant="light" icon={<AppIcon name="triangle-alert" />}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Text size="sm">
+                  {noRole.length} {noRole.length === 1 ? 'user has' : 'users have'} no role assigned yet.
+                </Text>
+                <Button size="compact-xs" variant="default" onClick={() => openView(noRole[0].id)}>
+                  Review user
+                </Button>
+              </div>
+            </Alert>
+          )}
 
-        {/* row 1: key numbers */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {stats.map((s) => (
-            <StatWidget key={s.label} {...s} />
-          ))}
-        </div>
-
-        {/* row 2: table in a plain card */}
-        <div className={`${CARD} p-4`}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'all', label: `All (${users.length})` },
-                  { value: 'active', label: `Active (${active.length})` },
-                  { value: 'inactive', label: `Inactive (${inactive.length})` },
-                ]}
-              />
-            </div>
-            <Text size="xs" c="dimmed">
-              Passwords must have at least 8 characters
-            </Text>
+          {/* row 1: key numbers */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {stats.map((s) => (
+              <StatWidget key={s.label} {...s} />
+            ))}
           </div>
 
-          <CustomTable<User>
-            size="md"
-            data={tabData[tab]}
-            columns={columns}
-            searchInput
-            searchPlaceholder="Search name, username or email"
-            searchKeys={['name', 'username', 'email']}
-            filters={{ role: roleOptions, created: 'date' }}
-            defaultSort={{ accessor: 'name', direction: 'asc' }}
-            noRecordText={TAB_EMPTY[tab]}
-            onRowClick={(row) => openView(row.id)}
-            exportCsv
-            exportFileName="users"
-            print
-            printTitle="Users"
-          />
+          {/* row 2: table in a plain card */}
+          <div className={`${CARD} p-4`}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="max-w-full overflow-x-auto">
+                <SegmentedControl
+                  size="xs"
+                  value={tab}
+                  onChange={(v) => setTab(v as TabKey)}
+                  data={[
+                    { value: 'all', label: `All (${users.length})` },
+                    { value: 'active', label: `Active (${active.length})` },
+                    { value: 'inactive', label: `Inactive (${inactive.length})` },
+                  ]}
+                />
+              </div>
+              <Text size="xs" c="dimmed">
+                Passwords must have at least 8 characters
+              </Text>
+            </div>
+
+            <CustomTable<User>
+              size="md"
+              data={tabData[tab]}
+              columns={columns}
+              searchInput
+              searchPlaceholder="Search name, username or email"
+              searchKeys={['name', 'username', 'email']}
+              filters={{ role: roleOptions, created: 'date' }}
+              defaultSort={{ accessor: 'name', direction: 'asc' }}
+              noRecordText={TAB_EMPTY[tab]}
+              onRowClick={(row) => openView(row.id)}
+              exportCsv
+              exportFileName="users"
+              print
+              printTitle="Users"
+            />
+          </div>
         </div>
-      </div>
+      </PageState>
 
       {/* user drawer */}
       <Drawer opened={!!selected} onClose={closeView} position="right" size="lg" title={selected?.name ?? ''}>
@@ -501,6 +614,9 @@ export function UsersPage() {
         opened={dialog?.kind === 'create' || dialog?.kind === 'edit'}
         user={dialog?.kind === 'edit' ? (dialogUser ?? null) : null}
         existingUsernames={users.map((u) => u.username)}
+        roleNames={roleNames}
+        saving={saving}
+        serverError={dialogError}
         onClose={() => setDialog(null)}
         onSubmit={save}
       />
@@ -508,6 +624,8 @@ export function UsersPage() {
       <ResetPasswordDialog
         opened={dialog?.kind === 'password' && !!dialogUser}
         userName={dialogUser?.name ?? ''}
+        saving={update.isPending}
+        serverError={dialogError}
         onClose={() => setDialog(null)}
         onSubmit={resetPassword}
       />
@@ -536,6 +654,15 @@ export function UsersPage() {
         confirmLabel={dialogUser?.twoFactor ? 'Turn off' : 'Turn on'}
         onClose={() => setDialog(null)}
         onConfirm={toggleTwoFactor}
+      />
+
+      <ContractConfirmDialog
+        opened={dialog?.kind === 'delete' && !!dialogUser && !deleteBlock(dialogUser)}
+        title="Delete user"
+        message={`Delete ${dialogUser?.name ?? 'this user'} (@${dialogUser?.username ?? ''})? This cannot be undone. To keep their history, deactivate them instead.`}
+        confirmLabel="Delete user"
+        onClose={() => setDialog(null)}
+        onConfirm={removeUser}
       />
     </DashboardLayout>
   )

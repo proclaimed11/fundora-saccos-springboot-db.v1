@@ -6,6 +6,7 @@ import { loginRequest, logoutRequest, toggleTwoFactorRequest, verifyTwoFactorReq
 import { getUserRequest } from '../api/users'
 import type { LoginResponse } from '../api/schemas'
 import { setCurrentUser } from './currentUser'
+import { clearSessionStart, markSessionStart } from './sessionClock'
 
 export type AuthUser = {
   id: number
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clear = () => {
     tokenStore.clear()
     localStorage.removeItem(USER_KEY)
+    clearSessionStart()
     setToken(null)
     setUser(null)
   }
@@ -114,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // both the plain login and the 2FA step end here
   const startSession = (res: LoginResponse, sessionToken: string, twoFactor: boolean) => {
+    markSessionStart()
     tokenStore.set(sessionToken)
     setToken(sessionToken)
     saveUser({

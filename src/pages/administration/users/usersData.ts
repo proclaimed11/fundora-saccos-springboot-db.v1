@@ -9,13 +9,20 @@ export const ROLE_STYLE: Record<RoleName, { color: string; level: string }> = {
   Collector: { color: 'teal', level: 'No approval level' },
 }
 
+const DEFAULT_STYLE = { color: 'gray', level: 'No approval level' }
+
+// a role that is not one of the known system roles gets the plain style
+export const roleStyle = (role: string | null) =>
+  role && role in ROLE_STYLE ? ROLE_STYLE[role as RoleName] : DEFAULT_STYLE
+
 export type User = {
   id: number
   name: string
   username: string
   email: string
   phone: string
-  role: RoleName | null
+  role: string | null
+  roleId?: number | null // the id the API uses, the sample users have none
   active: boolean
   twoFactor: boolean
   lastLogin: string | null // ISO date
