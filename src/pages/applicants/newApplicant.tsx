@@ -1,5 +1,6 @@
 import { AppIcon } from '../../components/appIcon'
 import { useState, type ChangeEvent, type FormEvent } from 'react'
+import dayjs from 'dayjs'
 import {
   Alert,
   Badge,
@@ -18,6 +19,12 @@ import { useNavigate } from 'react-router-dom'
 import { DateInput } from '@mantine/dates'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { ContractConfirmDialog } from '../loans/contractDialogs'
+import {
+  registerApplicantRequest,
+  sendOtpRequest,
+  verifyOtpRequest,
+  type RegisterBody,
+} from '../../api/applicants'
 
 type FormValues = {
   firstName: string
@@ -73,6 +80,8 @@ const statusLabels: Record<string, string> = {
 const EMAIL = /^\S+@\S+\.\S+$/
 const PHONE = /^0\d{9}$/
 
+const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
+
 function validate(step: number, v: FormValues): Errors {
   const e: Errors = {}
   const need = (key: StringKey, message: string) => {
@@ -107,6 +116,34 @@ function validate(step: number, v: FormValues): Errors {
   return e
 }
 
+// the request body of POST /api/onboarding/register
+function toBody(v: FormValues): RegisterBody {
+  return {
+    firstName: v.firstName.trim(),
+    middleName: v.middleName.trim(),
+    lastName: v.lastName.trim(),
+    // the applicant table stores MALE or FEMALE
+    gender: v.gender.toUpperCase(),
+    dateOfBirth: dayjs(v.dateOfBirth).format('YYYY-MM-DD'),
+    phone: v.phone.trim(),
+    email: v.email.trim(),
+    address: v.address.trim(),
+    nationality: v.nationality.trim(),
+    occupation: v.occupation.trim(),
+    locationName: v.locationName.trim(),
+    locationPin: v.locationPin.trim(),
+    isReturning: v.isReturning,
+    nidaNumber: v.nidaNumber.trim(),
+    // TODO: the API has no file upload yet, it only stores a path. The files are NOT sent,
+    //       only these paths. Replace them with the paths an upload endpoint returns.
+    nidaDocumentPath: `/uploads/${v.nidaDocument?.name ?? ''}`,
+    tinNumber: v.tinNumber.trim() || undefined,
+    idScanFilePath: `/uploads/${v.idScan?.name ?? ''}`,
+    idScanFileName: v.idScan?.name ?? '',
+    idScanMimeType: v.idScan?.type ?? '',
+  }
+}
+
 export function NewApplicantPage() {
   const navigate = useNavigate()
   const goBack = () => navigate('/applicants')
@@ -115,6 +152,7 @@ export function NewApplicantPage() {
   const [values, setValues] = useState<FormValues>(emptyValues)
   const [errors, setErrors] = useState<Errors>({})
 
+  const [applicantId, setApplicantId] = useState<number | null>(null)
   const [applicantNo, setApplicantNo] = useState('')
   const [status, setStatus] = useState('PENDING_OTP')
   const [destination, setDestination] = useState('')
@@ -124,6 +162,10 @@ export function NewApplicantPage() {
   const [codeError, setCodeError] = useState<string>()
   const [verified, setVerified] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  // one flag for the register, send and verify calls, so a button cannot be pressed twice
+  const [loading, setLoading] = useState(false)
+  // an error from the register call, shown above the buttons
+  const [formError, setFormError] = useState<string | null>(null)
 
   // anything typed, or an applicant number already issued, means leaving loses something
   const touched =
@@ -138,6 +180,7 @@ export function NewApplicantPage() {
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => {
     setValues((prev) => ({ ...prev, [key]: value }))
     setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev))
+    setFormError(null)
   }
 
   // props shared by every plain text field
@@ -153,41 +196,70 @@ export function NewApplicantPage() {
     setErrors(found)
     if (Object.keys(found).length > 0) return
     if (active < 2) setActive(active + 1)
-    else register()
+    else void register()
   }
 
-  function register() {
-    // TODO: call the register endpoint with `values` here
-    setApplicantNo(`APP-${Date.now()}`)
-    setStatus('PENDING_OTP')
-    setDestination(values.email.trim())
-    setActive(3)
+  async function register() {
+    setFormError(null)
+    setLoading(true)
+    try {
+      const res = await registerApplicantRequest(toBody(values))
+      setApplicantId(res.data.id)
+      setApplicantNo(res.data.applicantNo)
+      setStatus(res.data.status)
+      setDestination(values.email.trim())
+      setActive(3)
+    } catch (err) {
+      setFormError(messageOf(err, 'Could not register the applicant. Please try again.'))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function sendCode() {
+  async function sendCode() {
+    if (applicantId === null) return
     if (!EMAIL.test(destination.trim())) {
       setDestError('Enter a valid email address')
       return
     }
     setDestError(undefined)
-    // TODO: call the send-OTP endpoint here
-    setOtpSent(true)
+    setLoading(true)
+    try {
+      await sendOtpRequest(applicantId, destination.trim())
+      setOtpSent(true)
+      setCode('')
+      setCodeError(undefined)
+    } catch (err) {
+      setDestError(messageOf(err, 'Could not send the code. Please try again.'))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  function verifyCode() {
+  async function verifyCode() {
+    if (applicantId === null) return
     if (!/^\d{6}$/.test(code)) {
       setCodeError('Enter the 6-digit code')
       return
     }
     setCodeError(undefined)
-    // TODO: call the verify-OTP endpoint here
-    setVerified(true)
-    setStatus('PENDING_KYC')
+    setLoading(true)
+    try {
+      await verifyOtpRequest(applicantId, code)
+      setVerified(true)
+      setStatus('PENDING_KYC')
+    } catch (err) {
+      // for example "Invalid OTP code" or "OTP has expired"
+      setCodeError(messageOf(err, 'Could not verify the code. Please try again.'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   function startOver() {
     setValues(emptyValues)
     setErrors({})
+    setApplicantId(null)
     setApplicantNo('')
     setStatus('PENDING_OTP')
     setDestination('')
@@ -196,42 +268,44 @@ export function NewApplicantPage() {
     setCode('')
     setCodeError(undefined)
     setVerified(false)
+    setFormError(null)
     setActive(0)
   }
 
   // Enter does the sensible next thing on every step
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (loading) return
     if (active < 3) next()
-    else if (!otpSent) sendCode()
-    else if (!verified) verifyCode()
+    else if (!otpSent) void sendCode()
+    else if (!verified) void verifyCode()
   }
 
   return (
     <DashboardLayout
-        title="New applicant"
-        subtitle="Register new applicants by filling all necessary details"
-        breadcrumbs={[
+      title="New applicant"
+      subtitle="Register new applicants by filling all necessary details"
+      breadcrumbs={[
         { label: 'Home', to: '/' },
         { label: 'Applicants', to: '/applicants' },
         { label: 'New applicant' },
-        ]}
-        actions={
-          verified ? undefined : (
-            <Button size="xs" color="red" leftSection={<AppIcon name="user-round-x" />} onClick={cancelRegistration}>
-              Cancel registration
-            </Button>
-          )
-        }
+      ]}
+      actions={
+        verified ? undefined : (
+          <Button size="xs" color="red" leftSection={<AppIcon name="user-round-x" />} onClick={cancelRegistration}>
+            Cancel registration
+          </Button>
+        )
+      }
     >
-    <div className="rounded-md bg-white p-6 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
+      <div className="rounded-md bg-white p-6 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
         <Stepper
           active={verified ? 4 : active}
           size="xs"
           color="brand"
           allowNextStepsSelect={false}
           onStepClick={(i) => {
-            if (active < 3 && i < active) setActive(i)
+            if (active < 3 && i < active && !loading) setActive(i)
           }}
           mb="xl"
         >
@@ -304,32 +378,40 @@ export function NewApplicantPage() {
           )}
 
           {active === 2 && (
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-              <TextInput label="NIDA number" placeholder="NIDA123" {...text('nidaNumber')} />
-              <TextInput label="TIN number (optional)" placeholder="TIN123" {...text('tinNumber')} />
-              <FileInput
-                label="NIDA document"
-                placeholder="Upload PDF or image"
-                size="sm"
-                accept="application/pdf,image/*"
-                clearable
-                leftSection={<AppIcon name="upload" />}
-                value={values.nidaDocument}
-                onChange={(f) => set('nidaDocument', f)}
-                error={errors.nidaDocument}
-              />
-              <FileInput
-                label="ID scan"
-                placeholder="Upload JPG or PNG"
-                size="sm"
-                accept="image/*"
-                clearable
-                leftSection={<AppIcon name="upload" />}
-                value={values.idScan}
-                onChange={(f) => set('idScan', f)}
-                error={errors.idScan}
-              />
-            </SimpleGrid>
+            <Stack gap="md">
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                <TextInput label="NIDA number" placeholder="NIDA123" {...text('nidaNumber')} />
+                <TextInput label="TIN number (optional)" placeholder="TIN123" {...text('tinNumber')} />
+                <FileInput
+                  label="NIDA document"
+                  placeholder="Upload PDF or image"
+                  size="sm"
+                  accept="application/pdf,image/*"
+                  clearable
+                  leftSection={<AppIcon name="upload" />}
+                  value={values.nidaDocument}
+                  onChange={(f) => set('nidaDocument', f)}
+                  error={errors.nidaDocument}
+                />
+                <FileInput
+                  label="ID scan"
+                  placeholder="Upload JPG or PNG"
+                  size="sm"
+                  accept="image/*"
+                  clearable
+                  leftSection={<AppIcon name="upload" />}
+                  value={values.idScan}
+                  onChange={(f) => set('idScan', f)}
+                  error={errors.idScan}
+                />
+              </SimpleGrid>
+
+              {formError && (
+                <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />}>
+                  <Text size="sm">{formError}</Text>
+                </Alert>
+              )}
+            </Stack>
           )}
 
           {active === 3 && (
@@ -344,12 +426,7 @@ export function NewApplicantPage() {
                   <Text size="sm" fw={500}>
                     {applicantNo}
                   </Text>
-                  <Badge
-                    color={verified ? 'yellow' : 'gray'}
-                    variant="light"
-                    radius="sm"
-                    tt="none"
-                  >
+                  <Badge color={verified ? 'yellow' : 'gray'} variant="light" radius="sm" tt="none">
                     {statusLabels[status] ?? status}
                   </Badge>
                 </Group>
@@ -370,6 +447,7 @@ export function NewApplicantPage() {
                       label="Send to"
                       placeholder="john@example.com"
                       size="sm"
+                      disabled={otpSent}
                       value={destination}
                       onChange={(e) => {
                         setDestination(e.currentTarget.value)
@@ -384,6 +462,7 @@ export function NewApplicantPage() {
                       <Button
                         type="submit"
                         color="brand"
+                        loading={loading}
                         leftSection={<AppIcon name="mail" />}
                       >
                         Send code
@@ -410,10 +489,16 @@ export function NewApplicantPage() {
                         error={codeError}
                       />
                       <Group gap="xs">
-                        <Button type="submit" color="brand">
+                        <Button type="submit" color="brand" loading={loading}>
                           Verify code
                         </Button>
-                        <Button type="button" variant="subtle" color="gray" onClick={sendCode}>
+                        <Button
+                          type="button"
+                          variant="subtle"
+                          color="gray"
+                          disabled={loading}
+                          onClick={() => void sendCode()}
+                        >
                           Resend code
                         </Button>
                       </Group>
@@ -453,6 +538,7 @@ export function NewApplicantPage() {
                 <Button
                   type="button"
                   variant="default"
+                  disabled={loading}
                   leftSection={<AppIcon name="arrow-left" />}
                   onClick={() => setActive(active - 1)}
                 >
@@ -461,7 +547,7 @@ export function NewApplicantPage() {
               ) : (
                 <span />
               )}
-              <Button type="submit" color="brand">
+              <Button type="submit" color="brand" loading={loading}>
                 {active === 2 ? 'Register applicant' : 'Next'}
               </Button>
             </Group>
@@ -470,17 +556,17 @@ export function NewApplicantPage() {
       </div>
 
       <ContractConfirmDialog
-          opened={cancelOpen}
-          title="Cancel registration"
-          message={
-            applicantNo
-              ? `${applicantNo} is already registered and waiting for verification. If you leave now they stay in the Applicants list as Pending OTP, and you can verify them later from their profile.`
-              : 'Leave without registering? Everything you entered is lost.'
-          }
-          confirmLabel="Leave"
-          onClose={() => setCancelOpen(false)}
-          onConfirm={leave}
-        />
+        opened={cancelOpen}
+        title="Cancel registration"
+        message={
+          applicantNo
+            ? `${applicantNo} is already registered and waiting for verification. If you leave now they stay in the Applicants list as Pending OTP, and you can verify them later from their profile.`
+            : 'Leave without registering? Everything you entered is lost.'
+        }
+        confirmLabel="Leave"
+        onClose={() => setCancelOpen(false)}
+        onConfirm={leave}
+      />
     </DashboardLayout>
   )
 }
