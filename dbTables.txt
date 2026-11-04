@@ -26,6 +26,29 @@
  public | gl_entry                   | table | admin
  public | gl_transaction             | table | admin
  public | grace_period               | table | admin
+ public | guarantor                  | table | admin
+ public | guarantor_liability        | table | admin
+ public | guarantor_verification     | table | admin
+ public | installment                | table | admin
+ public | kyc_verification           | table | admin
+ public | loan                       | table | admin
+ public | loan_application           | table | admin
+ public | loan_contract              | table | admin
+ public | member_account             | table | admin
+ public | notification               | table | admin
+ public | npl_classification         | table | admin
+ public | otp_verification           | table | admin
+ public | payment                    | table | admin
+ public | payment_allocation         | table | admin
+ public | penalty                    | table | admin
+ public | recovery_action            | table | admin
+ public | recovery_case              | table | admin
+ public | repayment_schedule         | table | admin
+ public | role                       | table | admin
+ public | spatial_ref_sys            | table | postgres
+ public | user_session               | table | admin
+ public | users                      | table | admin
+ public | write_off 
 
 applicant table
 "-[ RECORD 1 ]-+---------------------------
@@ -398,3 +421,365 @@ Indexes:
  status     | character varying(255) |           |          | 
 Indexes:
     "grace_period_pkey" PRIMARY KEY, btree (id)
+
+
+ Table "public.guarantor"
+     Column     |              Type              | Collation | Nullable
+ |                Default                
+----------------+--------------------------------+-----------+----------+---------------------------------------
+ id             | bigint                         |           | not null | nextval('guarantor_id_seq'::regclass)
+ address        | character varying(255)         |           |          | 
+ application_id | bigint                         |           |          | 
+ created_at     | timestamp(6) without time zone |           |          | 
+ email          | character varying(255)         |           |          | 
+ full_name      | character varying(255)         |           |          | 
+ id_number      | character varying(255)         |           |          | 
+ phone          | character varying(255)         |           |          | 
+ status         | character varying(255)         |           |          | 
+ gps_location   | geometry(Point,4326)           |           |          | 
+ location_name  | character varying(255)         |           |         
+ location_pin   | character varying(255)         |           |          | 
+
+
+Table "public.guarantor_liability"
+    Column     |              Type              | Collation | Nullable |                     Default                     
+---------------+--------------------------------+-----------+----------+-------------------------------------------------
+ id            | bigint                         |           | not null | nextval('guarantor_liability_id_seq'::regclass)
+ document_path | character varying(255)         |           |          | 
+ guarantor_id  | bigint                         |           |          | 
+ signed_at     | timestamp(6) without time zone |           |          | 
+ status        | character varying(255)         |           |          | 
+Indexes:
+    "guarantor_liability_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.guarantor_verification"
+       Column        |              Type              | Collation | Nullable |                      Default                       
+---------------------+--------------------------------+-----------+----------+----------------------------------------------------
+ id                  | bigint                         |           | not null | nextval('guarantor_verification_id_seq'::regclass)
+ exposure_verified   | boolean                        |           |          | 
+ guarantor_id        | bigint                         |           |          | 
+ id_verified         | boolean                        |           |          | 
+ remarks             | character varying(255)         |           |          | 
+ verification_status | character varying(255)         |           |          | 
+ verified_at         | timestamp(6) without time zone |           |          | 
+ verified_by         | bigint                         |           |          | 
+Indexes:
+    "guarantor_verification_pkey" PRIMARY KEY, btree (id)
+
+
+                                        Table "public.installment"
+       Column       |          Type          | Collation | Nullable |                 Default                 
+--------------------+------------------------+-----------+----------+-----------------------------------------
+ id                 | bigint                 |           | not null | nextval('installment_id_seq'::regclass)
+ due_date           | date                   |           |          | 
+ installment_no     | integer                |           |          | 
+ interest_due       | numeric(38,2)          |           |          | 
+ interest_paid      | numeric(38,2)          |           |          | 
+ outstanding_amount | numeric(38,2)          |           |          | 
+ penalty_due        | numeric(38,2)          |           |          | 
+ penalty_paid       | numeric(38,2)          |           |          | 
+ principal_due      | numeric(38,2)          |           |          | 
+ principal_paid     | numeric(38,2)          |           |          | 
+ schedule_id        | bigint                 |           |          | 
+ status             | character varying(255) |           |          | 
+ total_due          | numeric(38,2)          |           |          | 
+Indexes:
+    "installment_pkey" PRIMARY KEY, btree (id)
+    "idx_installment_due_date" btree (due_date)
+    "idx_installment_schedule_id" btree (schedule_id)
+
+
+ Table "public.loan"
+        Column         |              Type              | Collation | Nullable |             Default              
+-----------------------+--------------------------------+-----------+----------+----------------------------------
+ id                    | bigint                         |           | not null | nextval('loan_id_seq'::regclass)
+ applicant_id          | bigint                         |           |          | 
+ application_id        | bigint                         |           |          | 
+ created_at            | timestamp(6) without time zone |           |          | 
+ disbursement_date     | date                           |           |          | 
+ interest_amount       | numeric(38,2)                  |           |          | 
+ is_npl                | boolean                        |           |          | 
+ is_written_off        | boolean                        |           |          | 
+ loan_no               | character varying(255)         |           |          | 
+ maturity_date         | date                           |           |          | 
+ outstanding_interest  | numeric(38,2)                  |           |          | 
+ outstanding_penalty   | numeric(38,2)                  |           |          | 
+ outstanding_principal | numeric(38,2)                  |           |          | 
+ overdue_days          | integer                        |           |          | 
+ principal_amount      | numeric(38,2)                  |           |          | 
+ status                | character varying(255)         |           |          | 
+ total_amount          | numeric(38,2)                  |           |          | 
+ updated_at            | timestamp(6) without time zone |           |          | 
+Indexes:
+    "loan_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.loan_application"
+           Column           |              Type              | Collation | Nullable |                   Default                    
+----------------------------+--------------------------------+-----------+----------+----------------------------------------------
+ id                         | bigint                         |           | not null | nextval('loan_application_id_seq'::regclass)
+ applicant_id               | bigint                         |           |          | 
+ application_no             | character varying(255)         |           |          | 
+ collateral_required        | boolean                        |           |          | 
+ created_at                 | timestamp(6) without time zone |           |          | 
+ guarantor_required         | boolean                        |           |          | 
+ interest_method            | character varying(255)         |           |          | 
+ interest_rate              | numeric(38,2)                  |           |          | 
+ loan_officer_id            | bigint                         |           |          | 
+ penalty_rate               | numeric(38,2)                  |           |          | 
+ requested_amount           | numeric(38,2)                  |          
+ status                     | character varying(255)         |           |          | 
+ submitted_at               | timestamp(6) without time zone |           |          | 
+ tenure                     | integer                        |           |          | 
+ updated_at                 | timestamp(6) without time zone |           |          | 
+ current_stage              | character varying(255)         |           |          | 
+ finalized                  | boolean                        |           |          | 
+ credit_assessment_required | boolean                        |           |          | 
+Indexes:
+    "loan_application_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.loan_contract"
+       Column        |              Type              | Collation | Nullable |                  Default                  
+---------------------+--------------------------------+-----------+----------+-------------------------------------------
+ id                  | bigint                         |           | not null | nextval('loan_contract_id_seq'::regclass)
+ application_id      | bigint                         |           |          | 
+ contract_no         | character varying(255)         |           |          | 
+ final_amount        | numeric(38,2)                  |           |          | 
+ final_interest_rate | numeric(38,2)                  |           |          | 
+ final_tenure        | integer                        |           |          | 
+ generated_at        | timestamp(6) without time zone |           |          | 
+ sent_at             | timestamp(6) without time zone |           |          | 
+ signed_at           | timestamp(6) without time zone |           |          | 
+ status              | character varying(255)         |           |          | 
+
+
+
+                                            Table "public.member_account"
+     Column     |              Type              | Collation | Nullable |                  Default                   
+----------------+--------------------------------+-----------+----------+--------------------------------------------
+ id             | bigint                         |           | not null | nextval('member_account_id_seq'::regclass)
+ account_number | character varying(255)         |           |          | 
+ account_type   | character varying(255)         |           |          | 
+ applicant_id   | bigint                         |           |          | 
+ bank_name      | character varying(255)         |           |          | 
+ created_at     | timestamp(6) without time zone |           |          | 
+ mobile_number  | character varying(255)         |           |          | 
+ status         | character varying(255)         |           |          | 
+Indexes:
+    "member_account_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.notification"
+    Column    |              Type              | Collation | Nullable |                 Default                  
+--------------+--------------------------------+-----------+----------+------------------------------------------
+ id           | bigint                         |           | not null | nextval('notification_id_seq'::regclass)
+ applicant_id | bigint                         |           |          | 
+ channel      | character varying(255)         |           |          | 
+ created_at   | timestamp(6) without time zone |           |          | 
+ event_type   | character varying(255)         |           |          | 
+ loan_id      | bigint                         |           |          | 
+ message      | character varying(255)         |           |          | 
+ recipient    | character varying(255)         |           |          | 
+ sent_at      | timestamp(6) without time zone |           |          | 
+ status       | character varying(255)         |           |          | 
+Indexes:
+    "notification_pkey" PRIMARY KEY, btree (id)
+
+
+ Table "public.npl_classification"
+       Column        |          Type          | Collation | Nullable |                    Default                     
+---------------------+------------------------+-----------+----------+------------------------------------------------
+ id                  | bigint                 |           | not null | nextval('npl_classification_id_seq'::regclass)
+ classification      | character varying(255) |           |          | 
+ classification_date | date                   |           |          | 
+ classified_by       | bigint                 |           |          | 
+ loan_id             | bigint                 |           |          | 
+ overdue_days        | integer                |           |          | 
+ remarks             | character varying(255) |           |          | 
+Indexes:
+    "npl_classification_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.otp_verification"
+    Column    |              Type              | Collation | Nullable |                   Default                    
+--------------+--------------------------------+-----------+----------+----------------------------------------------
+ id           | bigint                         |           | not null | nextval('otp_verification_id_seq'::regclass)
+ applicant_id | bigint                         |           |          | 
+ channel      | character varying(255)         |           |          | 
+ created_at   | timestamp(6) without time zone |           |          | 
+ destination  | character varying(255)         |           |          | 
+ expires_at   | timestamp(6) without time zone |           |          | 
+ is_used      | boolean                        |           |          | 
+ otp_hash     | character varying(255)         |           |          | 
+ verified_at  | timestamp(6) without time zone |           |          | 
+Indexes:
+    "otp_verification_pkey" PRIMARY KEY, btree (id)
+    "idx_otp_applicant_id" btree (applicant_id)
+
+
+
+ Table "public.payment"
+      Column      |              Type              | Collation | Nullable |               Default               
+------------------+--------------------------------+-----------+----------+-------------------------------------
+ id               | bigint                         |           | not null | nextval('payment_id_seq'::regclass)
+ amount           | numeric(38,2)                  |           |          | 
+ applicant_id     | bigint                         |           |          | 
+ created_at       | timestamp(6) without time zone |           |          | 
+ loan_id          | bigint                         |           |          | 
+ payment_date     | date                           |           |          | 
+ payment_method   | character varying(255)         |           |          | 
+ received_by      | bigint                         |           |          | 
+ reference_number | character varying(255)         |           |          | 
+ status           | character varying(255)         |           |          | 
+Indexes:
+    "payment_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.payment_allocation"
+      Column      |     Type      | Collation | Nullable |                    Default                     
+------------------+---------------+-----------+----------+------------------------------------------------
+ id               | bigint        |           | not null | nextval('payment_allocation_id_seq'::regclass)
+ installment_id   | bigint        |           |          | 
+ interest_amount  | numeric(38,2) |           |          | 
+ payment_id       | bigint        |           |          | 
+ penalty_amount   | numeric(38,2) |           |          | 
+ principal_amount | numeric(38,2) |           |          | 
+ total_allocated  | numeric(38,2) |           |          | 
+Indexes:
+    "payment_allocation_pkey" PRIMARY KEY, btree (id)
+
+
+
+                                        Table "public.penalty"
+     Column     |          Type          | Collation | Nullable |               Default               
+----------------+------------------------+-----------+----------+-------------------------------------
+ id             | bigint                 |           | not null | nextval('penalty_id_seq'::regclass)
+ amount         | numeric(38,2)          |           |          | 
+ applied_date   | date                   |           |          | 
+ installment_id | bigint                 |           |          | 
+ loan_id        | bigint                 |           |          | 
+ rate           | numeric(38,2)          |           |          | 
+ remarks        | character varying(255) |           |          | 
+ status         | character varying(255) |           |          | 
+Indexes:
+    "penalty_pkey" PRIMARY KEY, btree (id)
+
+
+
+Table "public.recovery_action"
+      Column      |              Type              | Collation | Nullable |                   Default                   
+------------------+--------------------------------+-----------+----------+---------------------------------------------
+ id               | bigint                         |           | not null | nextval('recovery_action_id_seq'::regclass)
+ action_date      | timestamp(6) without time zone |           |          | 
+ action_type      | character varying(255)         |           |          | 
+ amount           | numeric(38,2)                  |           |          | 
+ description      | character varying(255)         |           |          | 
+ document_path    | character varying(255)         |           |          | 
+ performed_by     | bigint                         |           |          | 
+ recovery_case_id | bigint                         |           |          | 
+Indexes:
+    "recovery_action_pkey" PRIMARY KEY, btree (id)
+
+
+ Table "public.recovery_case"
+       Column       |          Type          | Collation | Nullable |                  Default                  
+--------------------+------------------------+-----------+----------+-------------------------------------------
+ id                 | bigint                 |           | not null | nextval('recovery_case_id_seq'::regclass)
+ closed_date        | date                   |           |          | 
+ collection_case_id | bigint                 |           |          | 
+ handed_over_date   | date                   |           |          | 
+ loan_id            | bigint                 |           |          | 
+ remarks            | character varying(255) |           |          | 
+ status             | character varying(255) |           |          | 
+Indexes:
+    "recovery_case_pkey" PRIMARY KEY, btree (id)
+
+
+
+ Table "public.repayment_schedule"
+         Column         |              Type              | Collation | Nullable |                    Default                     
+------------------------+--------------------------------+-----------+----------+------------------------------------------------
+ id                     | bigint                         |           | not null | nextval('repayment_schedule_id_seq'::regclass)
+ created_at             | timestamp(6) without time zone |           |          | 
+ end_date               | date                           |           |          | 
+ frequency_days         | integer                        |           |          | 
+ loan_id                | bigint                         |           |          | 
+ start_date             | date                           |           |          | 
+ status                 | character varying(255)         |           |          | 
+ total_scheduled_amount | numeric(38,2)                  |           |          | 
+Indexes:
+    "repayment_schedule_pkey" PRIMARY KEY, btree (id)
+
+
+
+                                          Table "public.role"
+   Column    |              Type              | Collation | Nullable |             Default              
+-------------+--------------------------------+-----------+----------+----------------------------------
+ id          | bigint                         |           | not null | nextval('role_id_seq'::regclass)
+ created_at  | timestamp(6) without time zone |           |          | 
+ description | character varying(255)         |           |          | 
+ is_active   | boolean                        |           |          | 
+ name        | character varying(255)         |           |          | 
+ updated_at  | timestamp(6) without time zone |           |          | 
+Indexes:
+    "role_pkey" PRIMARY KEY, btree (id)
+
+
+Table "public.spatial_ref_sys"
+  Column   |          Type           | Collation | Nullable | Default 
+-----------+-------------------------+-----------+----------+---------
+ srid      | integer                 |           | not null | 
+ auth_name | character varying(256)  |           |          | 
+ auth_srid | integer                 |           |          | 
+ srtext    | character varying(2048) |           |          | 
+ proj4text | character varying(2048) |           |          | 
+Indexes:
+    "spatial_ref_sys_pkey" PRIMARY KEY, btree (srid)
+Check constraints:
+    "spatial_ref_sys_srid_check" CHECK (srid > 0 AND srid <= 998999)
+
+
+  Table "public.user_session"
+      Column      |              Type              | Collation | Nullable |                 Default                  
+------------------+--------------------------------+-----------+----------+------------------------------------------
+ id               | bigint                         |           | not null | nextval('user_session_id_seq'::regclass)
+ created_at       | timestamp(6) without time zone |           |          | 
+ expires_at       | timestamp(6) without time zone |           |          | 
+ is_active        | boolean                        |           |          | 
+ last_activity_at | timestamp(6) without time zone |           |          | 
+ token            | character varying(255)         |           |          | 
+ user_id          | bigint                         |           |          | 
+Indexes:
+    "user_session_pkey" PRIMARY KEY, btree (id)
+
+
+ Table "public.users"
+        Column         |              Type              | Collation | Nullable |              Default              
+-----------------------+--------------------------------+-----------+----------+-----------------------------------
+ id                    | bigint                         |           | not null | nextval('users_id_seq'::regclass)
+ created_at            | timestamp(6) without time zone |           |          | 
+ email                 | character varying(255)         |           |          | 
+ is_active             | boolean                        |           |          | 
+ last_login_at         | timestamp(6) without time zone |           |          | 
+ password_hash         | character varying(255)         |           |          | 
+ phone                 | character varying(255)         |           |          | 
+ role_id               | bigint                         |           |          | 
+ updated_at            | timestamp(6) without time zone |           |          | 
+ username              | character varying(255)         |           |          | 
+ is_two_factor_enabled | boolean                        |           |  
+
+
+  Table "public.write_off"
+     Column     |          Type          | Collation | Nullable |                Default                
+----------------+------------------------+-----------+----------+---------------------------------------
+ id             | bigint                 |           | not null | nextval('write_off_id_seq'::regclass)
+ amount         | numeric(38,2)          |           |          | 
+ approved_by    | bigint                 |           |          | 
+ loan_id        | bigint                 |           |          | 
+ reason         | character varying(255) |           |          | 
+ status         | character varying(255) |           |          | 
+ write_off_date | date                   |           |          | 
+Indexes:
+    "write_off_pkey" PRIMARY KEY, btree (id)

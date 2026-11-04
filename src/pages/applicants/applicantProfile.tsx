@@ -4,13 +4,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Alert, Badge, Button, Tabs, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
-import {
-  STATUS,
-  applicants,
-  initials,
-  stageActions,
-  type ApplicantStatus,
-} from './applicantsData'
+import { STATUS, initials, stageActions, type ApplicantStatus } from './applicantsData'
+import { ApiError } from '../../api/client'
+import { useApplicant } from '../../api/applicants'
+import { ErrorState, LoadingState } from '../../components/pageState'
 import {
   AccountsTab,
   ActivityTab,
@@ -59,12 +56,36 @@ export function ApplicantProfile() {
     return () => clearTimeout(t)
   }, [notice])
 
-  const base = applicants.find((a) => String(a.id) === id)
+  // GET /api/applicants/{id}
+  const { data: base, isLoading, error, refetch } = useApplicant(id)
   const applicant = base ? { ...base, ...changes, status: statusOverride ?? base.status } : undefined
 
   const { canEdit, canDelete } = usePageAccess('applicants', 'applicants')
   const { canApprove: canDecideKyc } = usePageAccess('applicants', 'kyc-review')
   const { canCreate: canStartLoan } = usePageAccess('loans', 'applications')
+
+    const crumbs = [
+    { label: 'Home', to: '/' },
+    { label: 'Applicants', to: '/applicants' },
+    { label: 'Applicant' },
+  ]
+
+  if (isLoading) {
+    return (
+      <DashboardLayout title="Applicant" breadcrumbs={crumbs}>
+        <LoadingState />
+      </DashboardLayout>
+    )
+  }
+
+  // a failed call is not the same as an applicant that does not exist
+  if (error && !(error instanceof ApiError && error.status === 404)) {
+    return (
+      <DashboardLayout title="Applicant" breadcrumbs={crumbs}>
+        <ErrorState message={error.message} onRetry={() => void refetch()} />
+      </DashboardLayout>
+    )
+  }
 
   if (!applicant) {
     return (

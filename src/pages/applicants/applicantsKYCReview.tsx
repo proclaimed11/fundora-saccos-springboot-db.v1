@@ -6,7 +6,9 @@ import { Badge, Button, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
-import { applicants, nidaFor, type Applicant } from './applicantsData'
+import { nidaFor, type Applicant } from './applicantsData'
+import { PageState } from '../../components/pageState'
+import { useApplicants } from '../../api/applicants'
 import { KycDecisionDialog } from './applicantKYCDecisionDialog'
 import { usePageAccess } from '../auth/usePageAccess'
 
@@ -24,7 +26,10 @@ export function KycReview() {
   const [decided, setDecided] = useState<number[]>([])
   const { canApprove } = usePageAccess('applicants', 'kyc-review')
 
-  const rows: Row[] = applicants
+    // GET /api/applicants, the queue is the ones still waiting for a KYC decision
+  const { data: all = [], isLoading, error, refetch } = useApplicants()
+
+  const rows: Row[] = all
     .filter((a) => a.status === 'PENDING_KYC' && !decided.includes(a.id))
     .map((a) => ({
       ...a,
@@ -116,6 +121,8 @@ export function KycReview() {
         { label: 'KYC Review' },
       ]}
     >
+
+      <PageState loading={isLoading} error={error?.message ?? null} onRetry={() => void refetch()}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {stats.map((s) => (
           <StatWidget key={s.label} {...s} />
@@ -140,6 +147,7 @@ export function KycReview() {
           noRecordText="No applicants are waiting for KYC review"
         />
       </div>
+      </PageState>
 
       <KycDecisionDialog
         applicant={reviewing}
