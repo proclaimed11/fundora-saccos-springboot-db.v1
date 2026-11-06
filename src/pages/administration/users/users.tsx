@@ -278,7 +278,6 @@ export function UsersPage() {
   /* ---------- actions, each one calls the API ---------- */
 
   const save = async (input: UserInput) => {
-    // the full name has no column yet, so input.name is not sent
     const roleId = roles.find((r) => r.name === input.role)?.id ?? null
     setDialogError(null)
 
@@ -286,6 +285,9 @@ export function UsersPage() {
       if (dialog?.kind === 'create') {
         await create.mutateAsync({
           username: input.username,
+          firstName: input.firstName,
+          middleName: input.middleName,
+          lastName: input.lastName,
           email: input.email,
           phone: input.phone,
           roleId,
@@ -297,7 +299,15 @@ export function UsersPage() {
       } else if (dialogUser) {
         await update.mutateAsync({
           id: dialogUser.id,
-          body: userBody(dialogUser, { username: input.username, email: input.email, phone: input.phone, roleId }),
+          body: userBody(dialogUser, {
+            username: input.username,
+            firstName: input.firstName,
+            middleName: input.middleName,
+            lastName: input.lastName,
+            email: input.email,
+            phone: input.phone,
+            roleId,
+          }),
         })
         setNotice({ color: 'green', text: `User ${input.username} was updated.` })
       }

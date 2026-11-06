@@ -54,13 +54,11 @@ export function stageActions(a: Applicant): { label: string; icon: string }[] {
   return list
 }
 
-export const initials = (name: string) =>
-  name
-    .split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
+export const initials = (name: string) => {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ''
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase()
+}
 
 /* ---------- SAMPLE ONLY: profile extras, replaced by API data later ---------- */
 

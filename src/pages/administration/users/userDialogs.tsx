@@ -10,7 +10,9 @@ const PHONE = /^0\d{9}$/
 /* ---------- new / edit user ---------- */
 
 export type UserInput = {
-  name: string
+  firstName: string
+  middleName: string
+  lastName: string
   username: string
   email: string
   phone: string
@@ -32,7 +34,7 @@ type UserDialogProps = {
   onSubmit: (input: UserInput) => void
 }
 
-type Errors = Partial<Record<'username' | 'email' | 'phone' | 'role' | 'password', string>>
+type Errors = Partial<Record<'firstName' | 'lastName' | 'username' | 'email' | 'phone' | 'role' | 'password', string>>
 
 export function UserDialog({
   opened,
@@ -46,7 +48,9 @@ export function UserDialog({
 }: UserDialogProps) {
   const minLength = useMinPasswordLength()
   const editing = user !== null
-  const [name, setName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [middleName, setMiddleName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
@@ -56,8 +60,9 @@ export function UserDialog({
 
   useEffect(() => {
     if (!opened) return
-    // the full name has no column yet, so it always starts empty
-    setName('')
+    setFirstName(user?.firstName ?? '')
+    setMiddleName(user?.middleName ?? '')
+    setLastName(user?.lastName ?? '')
     setUsername(user?.username ?? '')
     setEmail(user?.email ?? '')
     setPhone(user?.phone ?? '')
@@ -70,6 +75,8 @@ export function UserDialog({
 
   const submit = () => {
     const found: Errors = {}
+    if (!firstName.trim()) found.firstName = 'Enter a first name'
+    if (!lastName.trim()) found.lastName = 'Enter a last name'
     const u = username.trim().toLowerCase()
 
     if (!u) found.username = 'Enter a username'
@@ -84,21 +91,28 @@ export function UserDialog({
     setErrors(found)
     if (Object.keys(found).length > 0 || !role) return
 
-    onSubmit({ name: name.trim(), username: u, email: email.trim(), phone: phone.trim(), role, password })
+    onSubmit({
+      firstName: firstName.trim(),
+      middleName: middleName.trim(),
+      lastName: lastName.trim(),
+      username: u,
+      email: email.trim(),
+      phone: phone.trim(),
+      role,
+      password,
+    })
   }
 
   return (
     <Modal opened={opened} onClose={onClose} title={editing ? 'Edit user' : 'New user'} centered>
       <div className="space-y-4">
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <TextInput
-            label="Full name (optional)"
-            description="Not saved yet, there is no name field in the API"
-            placeholder="Asha Mrema"
-            size="sm"
-            value={name}
-            onChange={(e) => setName(e.currentTarget.value)}
-          />
+          <TextInput label="First name" placeholder="Asha" size="sm" value={firstName}
+            onChange={(e) => { setFirstName(e.currentTarget.value); clear('firstName') }} error={errors.firstName} />
+          <TextInput label="Middle name (optional)" placeholder="Neema" size="sm" value={middleName}
+            onChange={(e) => setMiddleName(e.currentTarget.value)} />
+          <TextInput label="Last name" placeholder="Mrema" size="sm" value={lastName}
+            onChange={(e) => { setLastName(e.currentTarget.value); clear('lastName') }} error={errors.lastName} />
           <TextInput label="Username" placeholder="asha" size="sm" value={username}
             onChange={(e) => { setUsername(e.currentTarget.value); clear('username') }} error={errors.username} />
           <TextInput label="Email" placeholder="asha@fundora.co.tz" size="sm" value={email}

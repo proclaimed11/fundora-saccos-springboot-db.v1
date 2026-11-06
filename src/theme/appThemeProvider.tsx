@@ -24,8 +24,8 @@ import type {
 const PALETTE_STORAGE_KEY = 'project-tracker-theme'
 const COLORS_STORAGE_KEY = 'project-tracker-theme-colors'
 const SIDEBAR_APPEARANCE_STORAGE_KEY = 'project-tracker-sidebar-appearance'
-const BODY_FONT = "'Livvic', sans-serif"
-const HEADING_FONT = "'Livvic', sans-serif"
+const BODY_FONT = "'Geist Variable', sans-serif"
+const HEADING_FONT = "'Geist Variable', sans-serif"
 const HEADER_STYLE_STORAGE_KEY = 'project-tracker-header-style'
 
 type ThemeVariables = CSSProperties & {
@@ -225,7 +225,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       '--app-sidebar-background': sidebarAppearance === 'dark' ? '#1f2937' : '#ffffff',
       '--app-sidebar-text': sidebarAppearance === 'dark' ? '#e5e7eb' : '#4b5563',
       '--app-sidebar-muted': sidebarAppearance === 'dark' ? '#9ca3af' : '#9ca3af',
-      '--app-sidebar-border': sidebarAppearance === 'dark' ? '#374151' : '#f3f4f6',
+      '--app-sidebar-border': sidebarAppearance === 'dark' ? '#374151' : '#d1d5db',
       '--app-sidebar-highlight-text': getContrastingTextColor(surfaceColors.sidebarHighlight),
       '--app-sidebar-avatar': sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
       '--app-sidebar-avatar-text': sidebarAppearance === 'dark' ? '#f9fafb' : palette.shades[8],

@@ -2,22 +2,28 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { useNavigate } from 'react-router-dom'
 import { setUnauthorizedHandler } from '../api/client'
 import { tokenStore } from '../api/token'
-import { loginRequest, logoutRequest, toggleTwoFactorRequest, verifyTwoFactorRequest } from '../api/auth'
+import { loginRequest, logoutRequest, rolePermissionsRequest, toggleTwoFactorRequest, verifyTwoFactorRequest } from '../api/auth'
 import { getUserRequest } from '../api/users'
-import type { LoginResponse } from '../api/schemas'
+import type { LoginResponse, Permission, UserRecord } from '../api/schemas'
 import { setCurrentUser } from './currentUser'
 import { markSessionStart } from './sessionClock'
 import { queryClient } from '../api/queryClient'
+import { formatUserName } from '../utils/userName'
 
 export type AuthUser = {
   id: number
   username: string
-  /** display name, built from the username until the API returns one */
+  firstName: string
+  middleName: string
+  lastName: string
+  /** "First M. Last" from the users table, or a generic fallback when names are unavailable */
   name: string
   email: string
   phone: string
   /** role name from the API, must match a role name on the Roles page */
   role: string | null
+  /** what the role may do, from role_permissions in the database */
+  permissions: Permission[]
   /** from the user record, so it is true when two-factor is switched on for this account */
   twoFactor: boolean
 }
@@ -40,18 +46,41 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | null>(null)
 const USER_KEY = 'pt_user'
 
-const toName = (username: string) => username.charAt(0).toUpperCase() + username.slice(1)
+const rec = (v: unknown): Record<string, unknown> =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+
+// the user record may carry the role as a name, an object, or only as roleId
+const roleNameOf = (role: unknown): string | null => {
+  if (typeof role === 'string') return role || null
+  const name = rec(role).name
+  return typeof name === 'string' && name ? name : null
+}
+
+const roleIdOf = (profile: UserRecord): number | null => {
+  if (typeof profile.roleId === 'number') return profile.roleId
+  const id = rec(profile.role).id
+  return typeof id === 'number' ? id : null
+}
 
 function loadUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
     // a user saved before newer fields existed has no such field, so it gets a default
-    const saved = JSON.parse(raw) as Omit<AuthUser, 'twoFactor' | 'phone'> & {
-      twoFactor?: boolean
-      phone?: string
+    const saved = JSON.parse(raw) as Partial<AuthUser> & { id: number; username: string }
+    return {
+      id: saved.id,
+      username: saved.username,
+      firstName: saved.firstName ?? '',
+      middleName: saved.middleName ?? '',
+      lastName: saved.lastName ?? '',
+      name: formatUserName(saved, 'User'),
+      email: saved.email ?? '',
+      phone: saved.phone ?? '',
+      role: saved.role ?? null,
+      permissions: saved.permissions ?? [],
+      twoFactor: saved.twoFactor ?? false,
     }
-    return { ...saved, twoFactor: saved.twoFactor ?? false, phone: saved.phone ?? '' }
   } catch {
     return null
   }
@@ -65,13 +94,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // the pages stamp actions with this name, keep it in step with the signed-in user
   setCurrentUser(user?.name ?? 'User')
 
-const clear = () => {
-  tokenStore.clear()
-  localStorage.removeItem(USER_KEY)
-  queryClient.clear() // the next user must not see this user's cached data
-  setToken(null)
-  setUser(null)
-}
+  const clear = () => {
+    tokenStore.clear()
+    localStorage.removeItem(USER_KEY)
+    queryClient.clear() // the next user must not see this user's cached data
+    setToken(null)
+    setUser(null)
+  }
 
   // a 401 from a protected call ends the session and shows the session expired page
   useEffect(() => {
@@ -89,19 +118,36 @@ const clear = () => {
     setUser(next)
   }
 
-  // the login answer has no email, phone or two-factor state, so they come from the user record.
-  // If it fails, the sign-in still works without them (a 401 is handled by the client).
+  // asks the server again for the user record and the role's grants, so a change made by an
+  // admin shows up after a refresh. If a call fails, the sign-in still works with what we have
+  // (a 401 is handled by the client).
   const loadProfile = async (userId: number) => {
     try {
       const profile = await getUserRequest(userId)
       const current = loadUser()
       if (!current || current.id !== userId) return
+
+      const parts = {
+        firstName: profile.firstName ?? profile.first_name ?? current.firstName,
+        middleName: profile.middleName ?? profile.middle_name ?? current.middleName,
+        lastName: profile.lastName ?? profile.last_name ?? current.lastName,
+      }
       saveUser({
         ...current,
+        ...parts,
+        name: formatUserName(parts, 'User'),
         email: profile.email ?? current.email,
         phone: profile.phone ?? current.phone,
+        role: roleNameOf(profile.role) ?? current.role,
         twoFactor: profile.isTwoFactorEnabled ?? profile.twoFactorEnabled ?? current.twoFactor,
       })
+
+      const roleId = roleIdOf(profile)
+      if (roleId !== null) {
+        const permissions = await rolePermissionsRequest(roleId)
+        const latest = loadUser()
+        if (latest && latest.id === userId) saveUser({ ...latest, permissions })
+      }
     } catch {
       // keep what we have
     }
@@ -120,13 +166,21 @@ const clear = () => {
     markSessionStart()
     tokenStore.set(sessionToken)
     setToken(sessionToken)
+
+    const parts = {
+      firstName: res.firstName ?? res.first_name ?? '',
+      middleName: res.middleName ?? res.middle_name ?? '',
+      lastName: res.lastName ?? res.last_name ?? '',
+    }
     saveUser({
       id: res.userId,
       username: res.username,
-      name: toName(res.username),
+      ...parts,
+      name: formatUserName(parts, 'User'),
       email: res.email ?? '',
       phone: '',
       role: res.role ?? null,
+      permissions: res.permissions ?? [],
       twoFactor,
     })
     void loadProfile(res.userId)

@@ -97,7 +97,16 @@ function LivePreview({
                   style={{ backgroundColor: colors.sidebarIndicator }}
                 />
               )}
-              <AppIcon name={item.icon} size={13} />
+              <span
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border"
+                style={{
+                  borderColor: item.active ? 'transparent' : dark ? '#374151' : '#d1d5db',
+                  backgroundColor: item.active ? colors.primary : 'transparent',
+                  color: item.active ? '#ffffff' : dark ? '#e5e7eb' : '#4b5563',
+                }}
+              >
+                <AppIcon name={item.icon} size={13} />
+              </span>
               {item.label}
             </div>
           ))}

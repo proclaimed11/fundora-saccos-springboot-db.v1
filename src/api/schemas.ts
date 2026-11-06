@@ -38,6 +38,16 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>
 
 /* ---------- responses ---------- */
 
+export const permissionSchema = z.object({
+  id: z.number(),
+  area: z.string(),
+  page: z.string().nullable().optional(),
+  action: z.string(),
+  label: z.string().optional(),
+  kind: z.string().nullable().optional(),
+})
+export type Permission = z.infer<typeof permissionSchema>
+
 // login answers with a token, or with requiresTwoFactor and a twoFactorToken
 // (a failure never reaches here, the client turns { success: false } into an error)
 export const loginResponseSchema = z.object({
@@ -45,9 +55,16 @@ export const loginResponseSchema = z.object({
   message: z.string().optional(),
   userId: z.number(),
   username: z.string(),
+  firstName: z.string().nullable().optional(),
+  middleName: z.string().nullable().optional(),
+  lastName: z.string().nullable().optional(),
+  first_name: z.string().nullable().optional(),
+  middle_name: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
   email: z.string().optional(),
   role: z.string().nullable().optional(),
   token: z.string().optional(),
+  permissions: z.array(permissionSchema).optional(),
   requiresTwoFactor: z.boolean().optional(),
   twoFactorToken: z.string().optional(),
 })
@@ -65,9 +82,17 @@ export type MessageResponse = z.infer<typeof messageResponseSchema>
 export const userSchema = z.object({
   id: z.number(),
   username: z.string(),
+  firstName: z.string().nullable().optional(),
+  middleName: z.string().nullable().optional(),
+  lastName: z.string().nullable().optional(),
+  first_name: z.string().nullable().optional(),
+  middle_name: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
-  // the JSON name of a boolean depends on how the backend declares it, so accept both
+  roleId: z.number().nullable().optional(),
+  // the Spring model may send the role as an object, so it is read by hand
+  role: z.unknown().optional(),
   isTwoFactorEnabled: z.boolean().optional(),
   twoFactorEnabled: z.boolean().optional(),
 })

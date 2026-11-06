@@ -2,6 +2,7 @@ import { AppIcon } from '../appIcon'
 import { ActionIcon, Menu, ScrollArea, Text, UnstyledButton } from '@mantine/core'
 import { visibleSections } from './navItems'
 import { useRoles } from '../../pages/administration/roles/rolesContext'
+import { initials } from '../../pages/applicants/applicantsData'
 
 type SidebarUser = { name: string; role: string }
 
@@ -17,14 +18,6 @@ type SidebarProps = {
   onSettings?: () => void
   onLogout?: () => void
 }
-
-const initials = (name: string) =>
-  name
-    .split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
 
 export function Sidebar({
   active,
@@ -161,20 +154,28 @@ export function Sidebar({
                           : 'text-sidebar-text hover:bg-sidebar-highlight hover:text-sidebar-highlight-text'
                       }`}
                     >
-                      <AppIcon
-                        name={item.icon}
-                        className={`w-4 text-center opacity-90 ${
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors ${
                           isActive
-                            ? 'text-sidebar-highlight-text'
-                            : 'text-sidebar-text group-hover:text-sidebar-highlight-text'
+                            ? 'border-transparent bg-brand'
+                            : 'border-sidebar-border bg-transparent group-hover:border-transparent group-hover:bg-white/40'
                         }`}
-                      />
+                      >
+                        <AppIcon
+                          name={item.icon}
+                          className={`w-4 text-center opacity-90 ${
+                            isActive
+                              ? 'text-white'
+                              : 'text-sidebar-text group-hover:text-sidebar-highlight-text'
+                          }`}
+                        />
+                      </span>
                       <Text
                         size="sm"
-                        className={`font-light opacity-100${
+                        className={`font-light ${
                           isActive
-                            ? 'text-sidebar-highlight-text'
-                            : 'text-sidebar-text group-hover:text-sidebar-highlight-text'
+                            ? 'text-sidebar-highlight-text opacity-100'
+                            : 'text-sidebar-text opacity-90 group-hover:text-sidebar-highlight-text group-hover:opacity-100'
                         } ${collapsed ? 'lg:hidden' : ''} ${!open ? 'max-lg:hidden' : ''}`}
                       >
                         {item.label}

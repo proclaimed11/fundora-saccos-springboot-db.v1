@@ -5,6 +5,7 @@ import { visibleSections } from '../layout/navItems'
 import { useRoles } from '../../pages/administration/roles/rolesContext'
 import { useAuth } from '../../auth/authContext'
 import { SAMPLE_NOTIFICATIONS } from '../../pages/administration/notifications/notificationsData'
+import { initials } from '../../pages/applicants/applicantsData'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -20,21 +21,6 @@ const SECTION_ICON: Record<string, string> = {
   Accounting: 'book',
   Reports: 'file-chart-column',
   Administration: 'settings',
-}
-
-const initials = (name: string) =>
-  name
-    .split(' ')
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
-
-function greeting() {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good morning'
-  if (hour < 18) return 'Good afternoon'
-  return 'Good evening'
 }
 
 // shown when a role has no dashboard widgets
@@ -100,7 +86,7 @@ export function HomeFallback() {
           </div>
           <div className="min-w-0">
             <div className="truncate text-lg font-semibold text-gray-800">
-              {greeting()}, {user?.name?.split(' ')[0] ?? 'there'}
+              Welcome back {user?.name ?? 'there'}!
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {currentRole && (

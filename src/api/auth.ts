@@ -1,10 +1,17 @@
 import { api } from './client'
+import { z } from 'zod'
 import {
   loginResponseSchema,
   messageResponseSchema,
+  permissionSchema,
   type LoginResponse,
   type MessageResponse,
+  type Permission,
 } from './schemas'
+
+// what a role may do, read again on every page load so a change on the server shows up
+export const rolePermissionsRequest = (roleId: number) =>
+  api<Permission[]>(`/api/roles/${roleId}/permissions`, { schema: z.array(permissionSchema) })
 
 // the login body key: the API document says "username", change to { email, password } if your server wants email
 // the API document's login body is { email, password }

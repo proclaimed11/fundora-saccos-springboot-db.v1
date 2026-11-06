@@ -18,6 +18,9 @@ export const roleStyle = (role: string | null) =>
 export type User = {
   id: number
   name: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   username: string
   email: string
   phone: string

@@ -2,7 +2,7 @@ import { api } from './client'
 import { userSchema, type UserRecord } from './schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { User } from '../pages/administration/users/usersData'
-
+import { formatUserName } from '../utils/userName'
 /* ---------- small readers, the response shape is not documented so nothing is trusted blindly ---------- */
 
 const rec = (v: unknown): Record<string, unknown> =>
@@ -51,8 +51,17 @@ export function toUser(raw: unknown, roles: ApiRole[]): User {
 
   return {
     id: num(r.id) ?? 0,
-    // there is no name column yet, so the name is built from the username
-    name: username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Unknown',
+    firstName: str(r.firstName ?? r.first_name),
+    middleName: str(r.middleName ?? r.middle_name),
+    lastName: str(r.lastName ?? r.last_name),
+    name: formatUserName(
+      {
+        firstName: str(r.firstName ?? r.first_name),
+        middleName: str(r.middleName ?? r.middle_name),
+        lastName: str(r.lastName ?? r.last_name),
+      },
+      'Unknown',
+    ),
     username,
     email: str(r.email),
     phone: str(r.phone),
@@ -67,6 +76,9 @@ export function toUser(raw: unknown, roles: ApiRole[]): User {
 
 export type UserPayload = {
   username: string
+  firstName: string
+  middleName: string
+  lastName: string
   email: string
   phone: string
   roleId: number | null
@@ -84,6 +96,9 @@ const withRole = (p: UserPayload) => (p.roleId === null ? p : { ...p, role: { id
 export const userBody = (u: User, patch: Partial<UserPayload> = {}) =>
   withRole({
     username: u.username,
+    firstName: u.firstName ?? '',
+    middleName: u.middleName ?? '',
+    lastName: u.lastName ?? '',
     email: u.email,
     phone: u.phone,
     roleId: u.roleId ?? null,

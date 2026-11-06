@@ -11,8 +11,8 @@ export type RolesContextValue = {
   /** back to the sample roles (also clears stale localStorage) */
   resetRoles: () => void
 
-  /** the role of the signed-in user, null when the user has no role (or the role no longer exists) */
-  currentRole: Role | null
+  /** the role of the signed-in user, taken from the login response. Null when the user has no role */
+  currentRole: { name: string } | null
 
   /**
    * The one permission check used everywhere (sidebar, search, route guards, later buttons).

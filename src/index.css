@@ -2,12 +2,12 @@
 @import "tailwindcss";
 
 html {
-  font-size: 14.3px;
+  font-size: 14.29px;
 }
 
 @theme {
-  --font-sans: 'Livvic', sans-serif;
-  --font-heading: 'Livvic', sans-serif;
+  --font-sans: 'Geist Variable', sans-serif;
+  --font-heading: 'Geist Variable', sans-serif;
 }
 
 @theme inline {
