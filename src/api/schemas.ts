@@ -6,9 +6,10 @@ export const MIN_PASSWORD = 8
 /* ---------- requests (also used to validate the forms) ---------- */
 
 export const loginSchema = z.object({
-  username: z.string().trim().min(1, 'Enter your username'),
+  email: z.string().trim().min(1, 'Enter your email address').email('Enter a valid email address'),
   password: z.string().min(1, 'Enter your password'),
 })
+
 
 export type LoginInput = z.infer<typeof loginSchema>
 

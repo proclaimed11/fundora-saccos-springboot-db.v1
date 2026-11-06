@@ -132,8 +132,8 @@ const clear = () => {
     void loadProfile(res.userId)
   }
 
-  const login = async (username: string, password: string): Promise<LoginResult> => {
-    const res = await loginRequest(username.trim(), password)
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    const res = await loginRequest(email.trim(), password)
 
     // 2FA is on: no token yet, the code was emailed and the twoFactorToken identifies this attempt
     if (res.requiresTwoFactor) {

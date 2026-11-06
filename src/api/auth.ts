@@ -7,10 +7,11 @@ import {
 } from './schemas'
 
 // the login body key: the API document says "username", change to { email, password } if your server wants email
-export const loginRequest = (login: string, password: string) =>
+// the API document's login body is { email, password }
+export const loginRequest = (email: string, password: string) =>
   api<LoginResponse>('/api/auth/login', {
     method: 'POST',
-    body: { username: login, password },
+    body: { email, password },
     schema: loginResponseSchema,
     public: true,
   })

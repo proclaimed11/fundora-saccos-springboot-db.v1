@@ -5,6 +5,7 @@
  public | applicant                  | table | admin
  public | applicant_document         | table | admin
  public | applicant_identification   | table | admin
+ public | applicant_status_history   | table | admin
  public | application_status_history | table | admin
  public | approval                   | table | admin
  public | approval_hierarchy         | table | admin
@@ -41,10 +42,12 @@
  public | payment                    | table | admin
  public | payment_allocation         | table | admin
  public | penalty                    | table | admin
+ public | permissions                | table | admin
  public | recovery_action            | table | admin
  public | recovery_case              | table | admin
  public | repayment_schedule         | table | admin
  public | role                       | table | admin
+ public | role_permissions           | table | admin
  public | spatial_ref_sys            | table | postgres
  public | user_session               | table | admin
  public | users                      | table | admin
@@ -111,6 +114,23 @@ Table "public.applicant_identification"
  verified_by   | bigint                         |           |          | 
 Indexes:
     "applicant_identification_pkey" PRIMARY KEY, btree (id)
+
+
+
+                                           Table "public.applicant_status_history"
+    Column    |              Type              | Collation | Nullable |                       Default                        
+--------------+--------------------------------+-----------+----------+------------------------------------------------------
+ id           | bigint                         |           | not null | nextval('applicant_status_history_id_seq'::regclass)
+ applicant_id | bigint                         |           |          | 
+ changed_at   | timestamp(6) without time zone |           |          | 
+ changed_by   | bigint                         |           |          | 
+ new_status   | character varying(255)         |           |          | 
+ old_status   | character varying(255)         |           |          | 
+ remarks      | character varying(255)         |           |          | 
+Indexes:
+    "applicant_status_history_pkey" PRIMARY KEY, btree (id)
+
+
 
 application_status_history table
 
@@ -667,6 +687,20 @@ Indexes:
     "penalty_pkey" PRIMARY KEY, btree (id)
 
 
+                                    Table "public.permissions"
+ Column |          Type          | Collation | Nullable |                 Default                 
+--------+------------------------+-----------+----------+-----------------------------------------
+ id     | bigint                 |           | not null | nextval('permissions_id_seq'::regclass)
+ action | character varying(20)  |           | not null | 
+ area   | character varying(50)  |           | not null | 
+ kind   | character varying(10)  |           |          | 
+ label  | character varying(150) |           | not null | 
+ page   | character varying(50)  |           |          | 
+Indexes:
+    "permissions_pkey" PRIMARY KEY, btree (id)
+    "uq_permissions_area_page_action" UNIQUE CONSTRAINT, btree (area, page, action)
+
+
 
 Table "public.recovery_action"
       Column      |              Type              | Collation | Nullable |                   Default                   
@@ -727,6 +761,16 @@ Indexes:
     "role_pkey" PRIMARY KEY, btree (id)
 
 
+
+ Table "public.role_permissions"
+    Column     |  Type  | Collation | Nullable | Default 
+---------------+--------+-----------+----------+---------
+ permission_id | bigint |           | not null | 
+ role_id       | bigint |           | not null | 
+Indexes:
+    "role_permissions_pkey" PRIMARY KEY, btree (permission_id, role_id)
+
+
 Table "public.spatial_ref_sys"
   Column   |          Type           | Collation | Nullable | Default 
 -----------+-------------------------+-----------+----------+---------
@@ -768,7 +812,11 @@ Indexes:
  role_id               | bigint                         |           |          | 
  updated_at            | timestamp(6) without time zone |           |          | 
  username              | character varying(255)         |           |          | 
- is_two_factor_enabled | boolean                        |           |  
+ is_two_factor_enabled | boolean                        |           |          | 
+ first_name            | character varying(255)         |           |          | 
+ last_name             | character varying(255)         |           |          | 
+ middle_name           | character varying(255)         |           |  
+
 
 
   Table "public.write_off"
