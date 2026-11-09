@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ActionIcon, Button, Menu, Text } from '@mantine/core'
+import { ActionIcon, Avatar, Badge, Button, Menu, Text, UnstyledButton } from '@mantine/core'
 import { Link, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import logo from '../../assets/logo.png'
@@ -7,6 +7,7 @@ import { AppIcon } from '../appIcon'
 import { NavSearch } from './navSearch'
 import { useAppTheme } from '../../theme/themeContext'
 import { EVENT, SAMPLE_NOTIFICATIONS } from '../../pages/administration/notifications/notificationsData'
+import { initials } from '../../pages/applicants/applicantsData'
 
 export type Crumb = { label: string; to?: string }
 
@@ -20,6 +21,9 @@ export type DashboardHeaderProps = {
   onNavigate: (key: string) => void
   sidebar: ReactNode
   overlap?: boolean
+  user: { name: string; role: string }
+  onSettings?: () => void
+  onLogout?: () => void
   children: ReactNode
 }
 
@@ -35,6 +39,9 @@ export function DashboardHeader({
   onNavigate,
   sidebar,
   overlap = true,
+  user,
+  onSettings,
+  onLogout,
   children,
 }: DashboardHeaderProps) {
   const parts = Array.isArray(title) ? title : [title]
@@ -62,7 +69,7 @@ export function DashboardHeader({
           <img
             src={logo}
             alt="Company logo"
-            className={`h-9 w-28 max-w-full object-cover transition-opacity lg:w-32 ${
+            className={`h-9 w-20 max-w-full object-cover transition-opacity sm:w-28 lg:w-32 ${
               collapsed ? 'lg:pointer-events-none lg:opacity-0' : ''
             }`}
           />
@@ -79,7 +86,7 @@ export function DashboardHeader({
 
         <ActionIcon
           variant="subtle"
-          size="lg"
+          size="md"
           className={`${ICON_BTN} lg:hidden`}
           aria-label="Toggle sidebar"
           onClick={onMenuClick}
@@ -138,46 +145,67 @@ export function DashboardHeader({
           <NavSearch onNavigate={onNavigate} />
         </div>
 
-        <div className="relative z-10 ml-auto flex shrink-0 items-center gap-1 px-3">
-          <Menu position="bottom-end" shadow="md" width={340} withArrow>
+        <div className="relative z-10 ml-auto flex shrink-0 items-center gap-0.5 px-1.5 sm:gap-1 sm:px-3">
+          <Menu position="bottom-end" shadow="lg" width={340} withArrow>
             <Menu.Target>
-              <ActionIcon
-                variant="subtle"
-                size="lg"
-                className={`relative ${ICON_BTN}`}
-                aria-label={`Notifications, ${unread.length} unread`}
+              <UnstyledButton
+                type="button"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-slate-700 transition-colors hover:bg-emerald-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                aria-label="Notifications, 99+ unread"
               >
-                <AppIcon name="bell" />
-                {unread.length > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[10px] font-semibold leading-none text-white ring-2 ring-white">
-                    {unread.length}
-                  </span>
-                )}
-              </ActionIcon>
+                <span className="relative inline-flex h-6 w-6 items-center justify-center">
+                  <AppIcon name="bell" size={18} />
+                  <Badge
+                    size="xs"
+                    color="red"
+                    variant="filled"
+                    radius="xl"
+                    className="absolute -right-2 -top-1 z-10 min-w-7 border-2 border-white px-1 text-[9px] leading-none"
+                  >
+                    99+
+                  </Badge>
+                </span>
+              </UnstyledButton>
             </Menu.Target>
 
-            <Menu.Dropdown className="overflow-hidden border border-brand/20 p-0">
-              <div className="border-b border-brand/15 bg-brand-subtle px-4 py-3">
-                <Text size="sm" fw={600} className="text-brand-dark">
-                  Notifications
-                </Text>
-                <Text size="xs" className="text-brand">
-                  {unread.length === 0 ? 'You are all caught up' : `${unread.length} unread`}
-                </Text>
+            <Menu.Dropdown className="max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 shadow-xl">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+                    <AppIcon name="bell" size={17} />
+                  </span>
+                  <div className="min-w-0">
+                    <Text size="sm" fw={600} className="text-slate-800">
+                      Notifications
+                    </Text>
+                    <Text size="xs" className="text-slate-500">
+                      You have 99+ unread notifications
+                    </Text>
+                  </div>
+                </div>
+                <Badge size="sm" variant="light" color="red" radius="xl">
+                  99+
+                </Badge>
               </div>
 
               {latest.length === 0 ? (
-                <div className="px-4 py-8 text-center text-xs text-slate-500">Nothing new right now.</div>
+                <div className="px-4 py-10 text-center">
+                  <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                    <AppIcon name="bell" size={18} />
+                  </span>
+                  <Text size="sm" fw={500} className="text-slate-700">You’re all caught up</Text>
+                  <Text size="xs" className="mt-1 text-slate-500">New notifications will appear here.</Text>
+                </div>
               ) : (
-                <div className="max-h-80 divide-y divide-brand/10 overflow-y-auto">
+                <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto p-1.5">
                   {latest.map((n) => (
                     <button
                       key={n.id}
                       type="button"
                       onClick={() => navigate(`/notifications?view=${n.id}`)}
-                      className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                      className="flex w-full gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
                     >
-                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-brand">
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
                         <AppIcon name={EVENT[n.eventType].icon} size={15} />
                       </span>
                       <div className="min-w-0 flex-1">
@@ -189,7 +217,7 @@ export function DashboardHeader({
                             {dayjs(n.sentAt).format('MMM D')}
                           </Text>
                         </div>
-                        <Text size="xs" className="mt-1 line-clamp-2 text-slate-600">
+                        <Text size="xs" className="mt-1 line-clamp-2 leading-relaxed text-slate-600">
                           {n.message}
                         </Text>
                       </div>
@@ -198,11 +226,51 @@ export function DashboardHeader({
                 </div>
               )}
 
-              <div className="border-t border-brand/15 px-4 py-2 text-center">
+              <div className="border-t border-slate-100 px-4 py-2 text-center">
                 <Button component={Link} to="/notifications" size="compact-xs" variant="subtle">
                   View all notifications
                 </Button>
               </div>
+            </Menu.Dropdown>
+          </Menu>
+
+          <Menu position="bottom-end" shadow="md" width={220} withArrow>
+            <Menu.Target>
+              <UnstyledButton
+                type="button"
+                aria-label={`Account menu for ${user.name}`}
+                title={user.name}
+                className="ml-1 flex max-w-40 items-center gap-1 rounded-md p-1 text-left transition-colors hover:bg-emerald-950/5 sm:ml-2 sm:max-w-48 sm:gap-2"
+              >
+                <Avatar size="sm" radius="xl" color="brand" variant="light" className="shrink-0">
+                  {initials(user.name)}
+                </Avatar>
+                <span className="min-w-0 max-w-[3.5rem] sm:max-w-32">
+                  <Text size="xs" fw={500} truncate className="text-slate-800">
+                    {user.name}
+                  </Text>
+                  <Text size="10px" truncate className="hidden text-slate-500 sm:block">
+                    {user.role}
+                  </Text>
+                </span>
+                <AppIcon name="chevron-down" size={14} className="hidden shrink-0 text-slate-500 sm:block" />
+              </UnstyledButton>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<AppIcon name="circle-user-round" />}
+                onClick={onSettings}
+              >
+                Profile
+              </Menu.Item>
+              <Menu.Divider />
+              <Menu.Item
+                color="red"
+                leftSection={<AppIcon name="log-out" />}
+                onClick={onLogout}
+              >
+                Logout
+              </Menu.Item>
             </Menu.Dropdown>
           </Menu>
         </div>

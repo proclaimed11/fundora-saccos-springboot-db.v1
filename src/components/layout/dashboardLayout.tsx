@@ -5,7 +5,10 @@ import { useAuth } from '../../auth/authContext'
 import { Sidebar } from './sidebar'
 import { DashboardHeader, type DashboardHeaderProps } from './dashboardHeader'
 
-type DashboardLayoutProps = Omit<DashboardHeaderProps, 'collapsed' | 'onMenuClick' | 'onNavigate' | 'sidebar'> & {
+type DashboardLayoutProps = Omit<
+  DashboardHeaderProps,
+  'collapsed' | 'onMenuClick' | 'onNavigate' | 'sidebar' | 'user' | 'onSettings' | 'onLogout'
+> & {
   /** pull the page content up over the header, default true */
   overlap?: boolean
   onSettings?: () => void
@@ -55,6 +58,9 @@ export function DashboardLayout({
       collapsed={collapsed}
       onMenuClick={handleMenuClick}
       onNavigate={handleNavigate}
+      user={{ name: user?.name ?? 'User', role: user?.role ?? 'No role' }}
+      onSettings={onSettings ?? (() => navigate('/account'))}
+      onLogout={onLogout ?? logout}
       overlap={overlap}
       sidebar={
         <Sidebar
@@ -63,9 +69,6 @@ export function DashboardLayout({
           open={menuOpen}
           onClose={() => setMenuOpen(false)}
           collapsed={collapsed}
-          user={{ name: user?.name ?? 'User', role: user?.role ?? 'No role' }}
-          onSettings={onSettings ?? (() => navigate('/account'))}
-          onLogout={onLogout ?? logout}
         />
       }
     >
