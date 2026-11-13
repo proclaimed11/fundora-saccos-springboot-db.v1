@@ -16,7 +16,7 @@ const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : Array.isArray(
 
 /* ---------- roles ---------- */
 
-export type ApiRole = { id: number; name: string; description: string; isActive: boolean }
+export type ApiRole = { id: number; name: string; description: string; isActive: boolean; created: string }
 
 const toRole = (raw: unknown): ApiRole => {
   const r = rec(raw)
@@ -25,6 +25,7 @@ const toRole = (raw: unknown): ApiRole => {
     name: str(r.name),
     description: str(r.description),
     isActive: bool(r.isActive ?? r.active, true),
+    created: day(r.createdAt) ?? '',
   }
 }
 

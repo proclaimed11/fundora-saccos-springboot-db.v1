@@ -1,9 +1,8 @@
 import { AppIcon } from '../../../components/appIcon'
 import { useEffect, useState } from 'react'
-import { ActionIcon, Alert, Badge, Button, Checkbox, Modal, Select, Text, TextInput, Textarea } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Checkbox, Modal, Text, TextInput, Textarea } from '@mantine/core'
 import {
   ACTIONS,
-  LEVELS,
   KIND,
   MODULES,
   areaCell,
@@ -21,12 +20,9 @@ import {
   type Tri,
 } from './rolesData'
 
-const NO_LEVEL = 'No approval level'
-
 export type RoleInput = {
   name: string
   description: string
-  level: string | null
   permissions: Permissions
 }
 
@@ -66,7 +62,6 @@ export function RoleDialog({ opened, role, existingNames, onClose, onSubmit }: P
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [level, setLevel] = useState<string>(NO_LEVEL)
   const [perms, setPerms] = useState<Permissions>({})
   // which areas are open to show their pages
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -76,7 +71,6 @@ export function RoleDialog({ opened, role, existingNames, onClose, onSubmit }: P
     if (!opened) return
     setName(role?.name ?? '')
     setDescription(role?.description ?? '')
-    setLevel(role?.level ?? NO_LEVEL)
     setPerms(role ? copyOf(role.permissions) : {})
     // an area that was given out page by page starts open, so you see what was chosen
     setExpanded(
@@ -124,7 +118,6 @@ export function RoleDialog({ opened, role, existingNames, onClose, onSubmit }: P
     onSubmit({
       name: n,
       description: description.trim(),
-      level: level === NO_LEVEL ? null : level,
       permissions: Object.fromEntries(Object.entries(perms).filter(([, list]) => list.length > 0)),
     })
   }
@@ -135,13 +128,13 @@ export function RoleDialog({ opened, role, existingNames, onClose, onSubmit }: P
         {system && (
           <Alert color="yellow" variant="light" icon={<AppIcon name="lock-keyhole" />}>
             <Text size="xs">
-              This is a system role. The approval chain looks it up by name, so the name and approval level stay
-              fixed. You can still change the description and permissions.
+              This is a system role. The approval chain looks it up by name, so the name stays fixed. You can still
+              change the description and permissions.
             </Text>
           </Alert>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div>
           <TextInput
             label="Role name"
             placeholder="Branch Manager"
@@ -154,16 +147,6 @@ export function RoleDialog({ opened, role, existingNames, onClose, onSubmit }: P
               clear('name')
             }}
             error={errors.name}
-          />
-          <Select
-            label="Approval level"
-            description="The level of the approval chain this role can decide"
-            size="sm"
-            data={[NO_LEVEL, ...LEVELS]}
-            allowDeselect={false}
-            disabled={system}
-            value={level}
-            onChange={(v) => setLevel(v ?? NO_LEVEL)}
           />
         </div>
 

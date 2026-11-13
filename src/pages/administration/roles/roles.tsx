@@ -1,5 +1,5 @@
 import { AppIcon } from '../../../components/appIcon'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
@@ -9,15 +9,17 @@ import { CustomTable, type CustomTableColumn } from '../../../components/customT
 import { ContractConfirmDialog } from '../../loans/contractDialogs'
 import { RoleDialog, type RoleInput } from './roleDialogs'
 import { KIND, MODULES, actionLabel, areaCount, hasPages, isSplit, pageActions, permissionCount, type Role } from './rolesData'
-import { useRoles } from './rolesContext'
-import { SAMPLE_USERS } from '../users/usersData'
 import { usePageAccess } from '../../auth/usePageAccess'
+import { PageState } from '../../../components/pageState'
+import { useRoleList, useRoleMutations } from '../../../api/roles'
+import { useApiUsers, toUser } from '../../../api/users'
+import type { User } from '../users/usersData'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
 type TabKey = 'all' | 'system' | 'custom'
-type Notice = { text: string; color: 'green' | 'blue' } | null
-type DialogState = { kind: 'create' } | { kind: 'reset' } | { kind: 'edit' | 'delete'; id: number } | null
+type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
+type DialogState = { kind: 'create' } | { kind: 'edit' | 'delete'; id: number } | null
 
 type Row = Role & { userCount: number; permissionCount: number }
 
@@ -26,9 +28,6 @@ const TAB_EMPTY: Record<TabKey, string> = {
   system: 'No system roles',
   custom: 'No custom roles have been created',
 }
-
-// SAMPLE ONLY: the count comes from the users list, the same sample data as the Users page
-const usersWith = (role: string) => SAMPLE_USERS.filter((u) => u.role === role)
 
 // our own rule, the API does not say when a role can be deleted
 function deleteBlockReason(r: Row): string | null {
@@ -68,14 +67,14 @@ function TypeBadge({ system }: { system: boolean }) {
 
 type DrawerProps = {
   row: Row
+  members: User[]
   onEdit: (r: Row) => void
   onDelete: (r: Row) => void
 }
 
-function RoleDrawerBody({ row: r, onEdit, onDelete }: DrawerProps) {
+function RoleDrawerBody({ row: r, members, onEdit, onDelete }: DrawerProps) {
   const navigate = useNavigate()
   const blocked = deleteBlockReason(r)
-  const members = usersWith(r.name)
 
   const tiles = [
     { label: 'Users', value: String(r.userCount) },
@@ -234,8 +233,12 @@ function RoleDrawerBody({ row: r, onEdit, onDelete }: DrawerProps) {
 export function RolesPage() {
   const [params, setParams] = useSearchParams()
 
-  // UI only: changes made in this session, nothing is saved yet
-    const { roles, setRoles, resetRoles } = useRoles()
+  const { roles, apiRoles, loading, error, refetch } = useRoleList()
+  const usersQuery = useApiUsers()
+  const { create, update, remove: removeRole } = useRoleMutations()
+
+  const users = useMemo(() => (usersQuery.data ?? []).map((u) => toUser(u, apiRoles)), [usersQuery.data, apiRoles])
+  const usersWith = (role: string) => users.filter((u) => u.role === role)
   const [tab, setTab] = useState<TabKey>('all')
   const [dialog, setDialog] = useState<DialogState>(null)
   const [notice, setNotice] = useState<Notice>(null)
@@ -257,7 +260,7 @@ export function RolesPage() {
   const system = rows.filter((r) => r.system)
   const custom = rows.filter((r) => !r.system)
   const tabData: Record<TabKey, Row[]> = { all: rows, system, custom }
-  const withoutRole = SAMPLE_USERS.filter((u) => !u.role).length
+  const withoutRole = users.filter((u) => !u.role).length
 
   // here `color` is the icon color
   const stats = [
@@ -273,43 +276,41 @@ export function RolesPage() {
   const openView = (id: number) => setParams({ role: String(id) }, { replace: true })
   const closeView = () => setParams({}, { replace: true })
 
-    const dialogRow =
+  const dialogRow =
     dialog && (dialog.kind === 'edit' || dialog.kind === 'delete') ? rows.find((r) => r.id === dialog.id) : undefined
 
   /* ---------- actions ---------- */
 
-  const save = (input: RoleInput) => {
-    if (dialog?.kind === 'create') {
-      const id = Math.max(0, ...roles.map((r) => r.id)) + 1
-      setRoles((list) => [...list, { id, ...input, system: false, created: dayjs().format('YYYY-MM-DD') }])
-      setNotice({ color: 'green', text: `Role ${input.name} was created.` })
-      setTab('all')
-    } else if (dialogRow) {
-      setRoles((list) =>
-        list.map((r) =>
-          r.id === dialogRow.id
-            ? { ...r, description: input.description, permissions: input.permissions, ...(r.system ? {} : { name: input.name, level: input.level }) }
-            : r,
-        ),
-      )
-      setNotice({ color: 'green', text: `Role ${dialogRow.name} was updated.` })
+  const save = async (input: RoleInput) => {
+    try {
+      if (dialog?.kind === 'create') {
+        await create.mutateAsync({ name: input.name, description: input.description, permissions: input.permissions })
+        setNotice({ color: 'green', text: `Role ${input.name} was created.` })
+        setTab('all')
+      } else if (dialogRow) {
+        await update.mutateAsync({
+          id: dialogRow.id,
+          name: dialogRow.system ? dialogRow.name : input.name,
+          description: input.description,
+          permissions: input.permissions,
+        })
+        setNotice({ color: 'green', text: `Role ${dialogRow.name} was updated. People with this role see the change after they refresh.` })
+      }
+      setDialog(null)
+    } catch (err) {
+      setNotice({ color: 'red', text: err instanceof Error ? err.message : 'Could not save the role.' })
     }
-    setDialog(null)
   }
 
-  const remove = () => {
+  const remove = async () => {
     if (!dialogRow || deleteBlockReason(dialogRow)) return
-    // TODO: DELETE /api/roles/{id}
-    setRoles((list) => list.filter((r) => r.id !== dialogRow.id))
-    setNotice({ color: 'blue', text: `Role ${dialogRow.name} was deleted.` })
-    if (selected?.id === dialogRow.id) closeView()
-    setDialog(null)
-  }
-
-  const resetToDefaults = () => {
-    resetRoles()
-    closeView()
-    setNotice({ color: 'blue', text: 'The roles were reset to the default set.' })
+    try {
+      await removeRole.mutateAsync(dialogRow.id)
+      setNotice({ color: 'blue', text: `Role ${dialogRow.name} was deleted.` })
+      if (selected?.id === dialogRow.id) closeView()
+    } catch (err) {
+      setNotice({ color: 'red', text: err instanceof Error ? err.message : 'Could not delete the role.' })
+    }
     setDialog(null)
   }
 
@@ -431,16 +432,6 @@ export function RolesPage() {
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Administration' }, { label: 'Roles' }]}
       actions={
         <>
-          {canEdit && (
-            <Button
-              size="xs"
-              variant="default"
-              leftSection={<AppIcon name="refresh-cw" />}
-              onClick={() => setDialog({ kind: 'reset' })}
-            >
-              Reset to defaults
-            </Button>
-          )}
           {canCreate && (
             <Button size="xs" leftSection={<AppIcon name="plus" />} onClick={() => setDialog({ kind: 'create' })}>
               New role
@@ -449,70 +440,77 @@ export function RolesPage() {
         </>
       }
     >
-      <div className="space-y-4">
-        {notice && (
-          <Alert
-            color={notice.color}
-            variant="light"
-            withCloseButton
-            onClose={() => setNotice(null)}
-            icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'info'} />}
-          >
-            <Text size="sm">{notice.text}</Text>
-          </Alert>
-        )}
+      <PageState loading={loading} error={error} onRetry={refetch}>
+        <div className="space-y-4">
+          {notice && (
+            <Alert
+              color={notice.color}
+              variant="light"
+              withCloseButton
+              onClose={() => setNotice(null)}
+              icon={
+                <AppIcon
+                  name={notice.color === 'green' ? 'circle-check' : notice.color === 'red' ? 'circle-x' : 'info'}
+                />
+              }
+            >
+              <Text size="sm">{notice.text}</Text>
+            </Alert>
+          )}
 
-        {/* row 1: key numbers */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {stats.map((s) => (
-            <StatWidget key={s.label} {...s} />
-          ))}
-        </div>
-
-        {/* row 2: table in a plain card */}
-        <div className={`${CARD} p-4`}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'all', label: `All (${rows.length})` },
-                  { value: 'system', label: `System (${system.length})` },
-                  { value: 'custom', label: `Custom (${custom.length})` },
-                ]}
-              />
-            </div>
-            <Text size="xs" c="dimmed">
-              System roles drive the approval chain and cannot be deleted
-            </Text>
+          {/* row 1: key numbers */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {stats.map((s) => (
+              <StatWidget key={s.label} {...s} />
+            ))}
           </div>
 
-          <CustomTable<Row>
-            size="md"
-            data={tabData[tab]}
-            columns={columns}
-            searchInput
-            searchPlaceholder="Search role"
-            searchKeys={['name', 'description']}
-            filters={{ created: 'date' }}
-            defaultSort={{ accessor: 'name', direction: 'asc' }}
-            noRecordText={TAB_EMPTY[tab]}
-            onRowClick={(row) => openView(row.id)}
-            exportCsv
-            exportFileName="roles"
-            print
-            printTitle="Roles"
-          />
+          {/* row 2: table in a plain card */}
+          <div className={`${CARD} p-4`}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="max-w-full overflow-x-auto">
+                <SegmentedControl
+                  size="xs"
+                  value={tab}
+                  onChange={(v) => setTab(v as TabKey)}
+                  data={[
+                    { value: 'all', label: `All (${rows.length})` },
+                    { value: 'system', label: `System (${system.length})` },
+                    { value: 'custom', label: `Custom (${custom.length})` },
+                  ]}
+                />
+              </div>
+              <Text size="xs" c="dimmed">
+                System roles drive the approval chain and cannot be deleted
+              </Text>
+            </div>
+
+            <CustomTable<Row>
+              size="md"
+              data={tabData[tab]}
+              columns={columns}
+              searchInput
+              searchPlaceholder="Search role"
+              searchKeys={['name', 'description']}
+              filters={{ created: 'date' }}
+              defaultSort={{ accessor: 'name', direction: 'asc' }}
+              noRecordText={TAB_EMPTY[tab]}
+              onRowClick={(row) => openView(row.id)}
+              exportCsv
+              exportFileName="roles"
+              print
+              printTitle="Roles"
+            />
+          </div>
         </div>
-      </div>
+      </PageState>
 
       {/* role drawer */}
       <Drawer opened={!!selected} onClose={closeView} position="right" size="lg" title={selected?.name ?? ''}>
         {selected && (
           <RoleDrawerBody
             row={selected}
+            members={usersWith(selected.name)}
             onEdit={(r) => fromDrawer('edit', r)}
             onDelete={(r) => fromDrawer('delete', r)}
           />
@@ -534,15 +532,6 @@ export function RolesPage() {
         confirmLabel="Delete role"
         onClose={() => setDialog(null)}
         onConfirm={remove}
-      />
-
-      <ContractConfirmDialog
-        opened={dialog?.kind === 'reset'}
-        title="Reset roles"
-        message="Put every role back to the default set? Roles you created and permission changes are lost."
-        confirmLabel="Reset roles"
-        onClose={() => setDialog(null)}
-        onConfirm={resetToDefaults}
       />
     </DashboardLayout>
   )

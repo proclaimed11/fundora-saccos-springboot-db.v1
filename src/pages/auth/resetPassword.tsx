@@ -2,7 +2,7 @@ import { AppIcon } from '../../components/appIcon'
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, PasswordInput, Text, TextInput } from '@mantine/core'
-import logo from '../../assets/logo.png'
+import { AuthLayout } from './authLayout'
 import { MIN_PASSWORD, resetPasswordSchema, type ResetPasswordInput } from '../../api/schemas'
 import { resetPasswordRequest } from '../../api/auth'
 import { validateForm, type FieldErrors } from '../../utils/zodErrors'
@@ -70,14 +70,9 @@ export function ResetPassword() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-content-background p-4">
-      <div className="w-full max-w-sm rounded-md border-t-4 border-brand bg-white p-8 shadow-sm">
+    <AuthLayout>
+      <div className="w-full">
         <div className="mb-6 text-center">
-          <img
-            src={logo}
-            alt="Fundora Saccos"
-            className="mx-auto mb-2 h-20 w-56 max-w-full object-cover"
-          />
           <div className="mx-auto mt-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand-subtle text-brand-dark">
             <AppIcon name={done ? 'circle-check' : 'lock-keyhole'} size={24} strokeWidth={1.5} />
           </div>
@@ -192,6 +187,6 @@ export function ResetPassword() {
           )}
         </div>
       </div>
-    </div>
+    </AuthLayout>
   )
 }

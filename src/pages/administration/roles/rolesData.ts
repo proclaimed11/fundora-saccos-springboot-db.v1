@@ -1,3 +1,5 @@
+import type { Permission } from '../../../api/schemas'
+
 // a page inside an area, with the actions that make sense for it
 export type PageKind = 'stat' | 'chart' | 'list'
 
@@ -96,6 +98,17 @@ export const LEVELS = ['Level 1 · Admin', 'Level 2 · Manager', 'Level 3 · Com
 
 // 'loans' -> the actions on the whole area, 'loans.approvals' -> the actions on one page
 export type Permissions = Record<string, string[]>
+
+// the API sends one row per grant { area, page, action }, the UI checks the 'area' and 'area.page' keys
+export function toPermissions(grants: Permission[]): Permissions {
+  const out: Permissions = {}
+  grants.forEach((g) => {
+    const key = g.page ? `${g.area}.${g.page}` : g.area
+    const list = out[key] ?? (out[key] = [])
+    if (!list.includes(g.action)) list.push(g.action)
+  })
+  return out
+}
 
 export type Role = {
   id: number
