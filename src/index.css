@@ -33,6 +33,7 @@ html {
   position: relative;
   isolation: isolate;
   --botanical-accent: var(--app-brand);
+  --botanical-light: color-mix(in srgb, var(--botanical-accent) 8%, white);
 }
 
 .botanical-header-skin::before {
@@ -44,16 +45,16 @@ html {
   height: 124px;
   background-color: #fff;
   background-image:
-    radial-gradient(ellipse 180px 40px at 18% 100%, color-mix(in srgb, var(--botanical-accent) 10%, white) 0 62%, transparent 65%),
-    radial-gradient(ellipse 120px 28px at 55% 94%, color-mix(in srgb, var(--botanical-accent) 8%, white) 0 62%, transparent 66%),
-    radial-gradient(ellipse 90px 23px at 36% 72%, color-mix(in srgb, var(--botanical-accent) 7%, white) 0 58%, transparent 63%),
-    radial-gradient(ellipse 180px 40px at 82% 100%, color-mix(in srgb, var(--botanical-accent) 10%, white) 0 62%, transparent 65%),
-    radial-gradient(ellipse 120px 28px at 45% 94%, color-mix(in srgb, var(--botanical-accent) 8%, white) 0 62%, transparent 66%),
-    radial-gradient(ellipse 90px 23px at 64% 72%, color-mix(in srgb, var(--botanical-accent) 7%, white) 0 58%, transparent 63%),
-    radial-gradient(circle at center, transparent 0 5px, color-mix(in srgb, var(--botanical-accent) 19%, transparent) 5.5px 6.5px, transparent 7px),
-    radial-gradient(circle at center, transparent 0 5px, color-mix(in srgb, var(--botanical-accent) 19%, transparent) 5.5px 6.5px, transparent 7px),
-    radial-gradient(circle, color-mix(in srgb, var(--botanical-accent) 24%, transparent) 1.2px, transparent 1.8px),
-    radial-gradient(circle, color-mix(in srgb, var(--botanical-accent) 20%, transparent) 1px, transparent 1.6px);
+    radial-gradient(ellipse 180px 40px at 18% 100%, var(--botanical-light) 0 62%, transparent 65%),
+    radial-gradient(ellipse 120px 28px at 55% 94%, var(--botanical-light) 0 62%, transparent 66%),
+    radial-gradient(ellipse 90px 23px at 36% 72%, var(--botanical-light) 0 58%, transparent 63%),
+    radial-gradient(ellipse 180px 40px at 82% 100%, var(--botanical-light) 0 62%, transparent 65%),
+    radial-gradient(ellipse 120px 28px at 45% 94%, var(--botanical-light) 0 62%, transparent 66%),
+    radial-gradient(ellipse 90px 23px at 64% 72%, var(--botanical-light) 0 58%, transparent 63%),
+    radial-gradient(circle at center, transparent 0 5px, var(--botanical-light) 5.5px 6.5px, transparent 7px),
+    radial-gradient(circle at center, transparent 0 5px, var(--botanical-light) 5.5px 6.5px, transparent 7px),
+    radial-gradient(circle, var(--botanical-light) 1.2px, transparent 1.8px),
+    radial-gradient(circle, var(--botanical-light) 1px, transparent 1.6px);
   background-size:
     270px 74px,
     250px 66px,
@@ -87,12 +88,12 @@ html {
   inset: 0 0 auto;
   height: 124px;
   background-image:
-    repeating-radial-gradient(ellipse at 0% 100%, transparent 0 7px, color-mix(in srgb, var(--botanical-accent) 21%, transparent) 8px 9px, transparent 10px 14px),
-    repeating-radial-gradient(ellipse at 100% 100%, transparent 0 7px, color-mix(in srgb, var(--botanical-accent) 21%, transparent) 8px 9px, transparent 10px 14px),
-    repeating-linear-gradient(138deg, transparent 0 8px, color-mix(in srgb, var(--botanical-accent) 13%, transparent) 8.5px 9px, transparent 9.5px 15px),
-    repeating-linear-gradient(42deg, transparent 0 8px, color-mix(in srgb, var(--botanical-accent) 13%, transparent) 8.5px 9px, transparent 9.5px 15px),
-    radial-gradient(circle, color-mix(in srgb, var(--botanical-accent) 28%, transparent) 1.4px, transparent 1.9px),
-    radial-gradient(circle, color-mix(in srgb, var(--botanical-accent) 22%, transparent) 1.2px, transparent 1.7px);
+    repeating-radial-gradient(ellipse at 0% 100%, transparent 0 7px, var(--botanical-light) 8px 9px, transparent 10px 14px),
+    repeating-radial-gradient(ellipse at 100% 100%, transparent 0 7px, var(--botanical-light) 8px 9px, transparent 10px 14px),
+    repeating-linear-gradient(138deg, transparent 0 8px, var(--botanical-light) 8.5px 9px, transparent 9.5px 15px),
+    repeating-linear-gradient(42deg, transparent 0 8px, var(--botanical-light) 8.5px 9px, transparent 9.5px 15px),
+    radial-gradient(circle, var(--botanical-light) 1.4px, transparent 1.9px),
+    radial-gradient(circle, var(--botanical-light) 1.2px, transparent 1.7px);
   background-size: 280px 124px, 280px 124px, 58px 38px, 58px 38px, 34px 30px, 30px 28px;
   background-position:
     left bottom,
@@ -141,38 +142,6 @@ html {
 .texture-header-skin > * {
   position: relative;
   z-index: 1;
-}
-
-.sidebar-account-menu {
-  background-color: var(--color-sidebar-background);
-  border-color: var(--color-sidebar-border);
-  color: var(--color-sidebar-text);
-}
-
-.sidebar-account-menu-item {
-  color: var(--color-sidebar-text);
-}
-
-.sidebar-account-menu-item:hover,
-.sidebar-account-menu-item[data-hovered] {
-  background-color: var(--color-sidebar-highlight);
-  color: var(--app-sidebar-highlight-text);
-}
-
-.sidebar-account-menu-logout,
-.sidebar-account-menu-logout .mantine-Menu-itemLabel,
-.sidebar-account-menu-logout .mantine-Menu-itemSection {
-  color: #ef4444;
-}
-
-.sidebar-account-menu-logout:hover,
-.sidebar-account-menu-logout[data-hovered] {
-  background-color: rgba(239, 68, 68, 0.12);
-  color: #f87171;
-}
-
-.sidebar-account-menu-divider {
-  border-color: var(--color-sidebar-border);
 }
 
 @media (max-width: 1023px) {

@@ -160,7 +160,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       sidebarHighlight: sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
       primary: palette.shades[6],
       loader: palette.shades[6],
-      contentBackground: '#fafcfb',
+      contentBackground: '#fafafa',
     }),
     [palette, sidebarAppearance],
   )
