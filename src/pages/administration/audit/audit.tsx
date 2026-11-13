@@ -1,20 +1,15 @@
 import { AppIcon } from '../../../components/appIcon'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../../components/customTable/customTable'
-import { SAMPLE_USERS } from '../users/usersData'
-import {
-  ACTION,
-  ENTITY,
-  SAMPLE_AUDIT_LOGS,
-  entityLabel,
-  type AuditAction,
-  type AuditLog,
-} from './auditData'
+import { PageState } from '../../../components/pageState'
+import { useAuditLogs, useAuditSummary } from '../../../api/audit'
+import { toUser, useApiUsers } from '../../../api/users'
+import { ENTITY, actionInfo, entityLabel, type AuditLog } from './auditData'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 const WHEN = 'MMM D, YYYY h:mm A'
@@ -28,8 +23,11 @@ const TAB_EMPTY: Record<TabKey, string> = {
   week: 'Nothing has been recorded in the last 7 days',
 }
 
-const actionOptions = (Object.keys(ACTION) as AuditAction[]).map((k) => ({ value: k, label: ACTION[k].label }))
-const entityOptions = Object.keys(ENTITY).map((k) => ({ value: k, label: ENTITY[k].label }))
+// the entries of one action or record type, counted without caring about upper or lower case
+const countOf = (counts: Record<string, number> | null | undefined, key: string) =>
+  Object.entries(counts ?? {})
+    .filter(([k]) => k.toUpperCase() === key)
+    .reduce((sum, [, n]) => sum + n, 0)
 
 /* ---------- small pieces ---------- */
 
@@ -50,10 +48,11 @@ function SectionTitle({ children }: { children: string }) {
   )
 }
 
-function ActionBadge({ action }: { action: AuditAction }) {
+function ActionBadge({ action }: { action: string }) {
+  const info = actionInfo(action)
   return (
-    <Badge variant="light" color={ACTION[action].color} radius="sm" size="sm">
-      {ACTION[action].label}
+    <Badge variant="light" color={info.color} radius="sm" size="sm">
+      {info.label}
     </Badge>
   )
 }
@@ -81,7 +80,7 @@ function AuditDrawerBody({ row: r, onOpenRecord }: DrawerProps) {
   const link = r.entityId !== null ? ENTITY[r.entityType]?.path(r.entityId) : null
 
   const tiles = [
-    { label: 'Action', value: ACTION[r.action].label },
+    { label: 'Action', value: actionInfo(r.action).label },
     { label: 'Record', value: `${entityLabel(r.entityType)}${r.entityId !== null ? ` #${r.entityId}` : ''}` },
     { label: 'When', value: dayjs(r.createdAt).format('MMM D, YYYY') },
   ]
@@ -147,10 +146,10 @@ function AuditDrawerBody({ row: r, onOpenRecord }: DrawerProps) {
       <div>
         <SectionTitle>Entry details</SectionTitle>
         <Field label="Performed by" value={r.userName} />
-        <Field label="Action" value={ACTION[r.action].label} />
+        <Field label="Action" value={actionInfo(r.action).label} />
         <Field label="Record type" value={entityLabel(r.entityType)} />
         <Field label="Record ID" value={r.entityId !== null ? String(r.entityId) : '—'} />
-        <Field label="IP address" value={r.ipAddress} />
+        <Field label="IP address" value={r.ipAddress || '—'} />
         <Field label="Time" value={dayjs(r.createdAt).format(WHEN)} />
       </div>
 
@@ -170,10 +169,38 @@ export function AuditPage() {
   const [params, setParams] = useSearchParams()
   const [tab, setTab] = useState<TabKey>('all')
 
-  // SAMPLE ONLY: the user names come from the users list, the API only returns userId
-  const rows: Row[] = SAMPLE_AUDIT_LOGS.map((l) => ({
-    ...l,
-    userName: SAMPLE_USERS.find((u) => u.id === l.userId)?.name ?? 'System',
+  const logsQuery = useAuditLogs()
+  const summaryQuery = useAuditSummary()
+  const usersQuery = useApiUsers()
+
+  // the API only returns userId, the names come from the users list.
+  // If that list cannot be loaded the page still works and shows "User #5".
+  const names = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const raw of usersQuery.data ?? []) {
+      const u = toUser(raw, [])
+      if (u.id) map.set(u.id, u.name !== 'Unknown' ? u.name : u.username)
+    }
+    return map
+  }, [usersQuery.data])
+
+  const rows: Row[] = useMemo(
+    () =>
+      (logsQuery.data ?? []).map((l) => ({
+        ...l,
+        userName: l.userId === null ? 'System' : (names.get(l.userId) ?? `User #${l.userId}`),
+      })),
+    [logsQuery.data, names],
+  )
+
+  // the filter lists show what is really in the log
+  const actionOptions = [...new Set(rows.map((r) => r.action).filter(Boolean))].map((k) => ({
+    value: k,
+    label: actionInfo(k).label,
+  }))
+  const entityOptions = [...new Set(rows.map((r) => r.entityType).filter(Boolean))].map((k) => ({
+    value: k,
+    label: entityLabel(k),
   }))
 
   const today = rows.filter((r) => dayjs(r.createdAt).isSame(dayjs(), 'day'))
@@ -181,11 +208,14 @@ export function AuditPage() {
   const tabData: Record<TabKey, Row[]> = { all: rows, today, week }
 
   const people = new Set(rows.filter((r) => r.userId !== null).map((r) => r.userId)).size
-  const deletions = rows.filter((r) => r.action === 'DELETE').length
+  // the totals come from /api/audit-logs/summary, the rows are the fallback while it loads or if it fails
+  const summary = summaryQuery.data
+  const total = summary?.totalLogs ?? rows.length
+  const deletions = summary ? countOf(summary.byAction, 'DELETE') : rows.filter((r) => r.action === 'DELETE').length
 
   // here `color` is the icon color
   const stats = [
-    { label: 'Total Entries', value: rows.length, icon: 'history', color: '#45bdfc' },
+    { label: 'Total Entries', value: total, icon: 'history', color: '#45bdfc' },
     { label: 'Recorded Today', value: today.length, icon: 'calendar-check', color: 'var(--app-brand)' },
     { label: 'People Active', value: people, icon: 'users', color: '#8e44ad' },
     { label: 'Deletions', value: deletions, icon: 'trash', color: '#ef4444' },
@@ -216,7 +246,7 @@ export function AuditPage() {
       header: 'Action',
       sortable: false,
       render: (r) => <ActionBadge action={r.action} />,
-      exportValue: (r) => ACTION[r.action].label,
+      exportValue: (r) => actionInfo(r.action).label,
     },
     {
       // the accessor is "entityType" so the Record filter can read it
@@ -236,10 +266,10 @@ export function AuditPage() {
       render: (r) => (
         <div>
           <div className="whitespace-nowrap text-sm text-gray-800">{r.userName}</div>
-          <div className="whitespace-nowrap text-xs text-gray-500">{r.ipAddress}</div>
+          <div className="whitespace-nowrap text-xs text-gray-500">{r.ipAddress || '—'}</div>
         </div>
       ),
-      exportValue: (r) => `${r.userName} (${r.ipAddress})`,
+      exportValue: (r) => `${r.userName} (${r.ipAddress || '—'})`,
     },
     {
       // the ⋮ menu holds every action; "id" is only used as the accessor
@@ -282,6 +312,11 @@ export function AuditPage() {
       subtitle="A permanent record of who did what in the system"
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Administration' }, { label: 'Audit Log' }]}
     >
+      <PageState
+        loading={logsQuery.isLoading}
+        error={logsQuery.error ? logsQuery.error.message : null}
+        onRetry={() => void logsQuery.refetch()}
+      >
       <div className="space-y-4">
         {/* row 1: key numbers */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -329,6 +364,7 @@ export function AuditPage() {
           />
         </div>
       </div>
+      </PageState>
 
       {/* details drawer */}
       <Drawer
@@ -336,7 +372,7 @@ export function AuditPage() {
         onClose={closeView}
         position="right"
         size="lg"
-        title={selected ? `${ACTION[selected.action].label} · ${entityLabel(selected.entityType)}` : ''}
+        title={selected ? `${actionInfo(selected.action).label} · ${entityLabel(selected.entityType)}` : ''}
       >
         {selected && (
           <AuditDrawerBody
