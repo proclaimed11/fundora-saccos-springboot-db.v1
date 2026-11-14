@@ -1,7 +1,10 @@
 import { AppIcon } from '../../components/appIcon'
 import { useState } from 'react'
 import { Alert, Badge, Button, Modal, Text, Textarea } from '@mantine/core'
-import { STATUS, nidaFor, type Applicant } from './applicantsData'
+import { STATUS, type Applicant } from './applicantsData'
+import { useIdentifications, useKycDecision } from '../../api/applicants'
+import { useAuth } from '../../auth/authContext'
+
 
 export type KycDecision = 'APPROVED' | 'REJECTED'
 
@@ -24,10 +27,16 @@ export function KycDecisionDialog({ applicant, onClose, onDecided }: KycDecision
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState<KycDecision | null>(null) // set = showing the confirm step
   const [preview, setPreview] = useState<string | null>(null)
+  const { user } = useAuth()
+  const decide = useKycDecision()
+  const [serverError, setServerError] = useState<string | null>(null)
+  const { data: identifications = [] } = useIdentifications(applicant?.id ?? 0)
+  const nida = identifications.find((i) => i.type === 'NIDA')?.number ?? 'Not on file'
 
   const close = () => {
     setRemarks('')
     setError(undefined)
+    setServerError(null)
     setPending(null)
     setPreview(null)
     onClose()
@@ -42,11 +51,22 @@ export function KycDecisionDialog({ applicant, onClose, onDecided }: KycDecision
     setPending(decision)
   }
 
-  const confirm = () => {
-    if (!applicant || !pending) return
-    // TODO: call POST /api/onboarding/kyc/decision with the decision and remarks here
-    onDecided?.(applicant, pending, remarks.trim())
-    close()
+  const confirm = async () => {
+    if (!applicant || !pending || !user || decide.isPending) return
+    setServerError(null)
+    try {
+      // POST /api/onboarding/kyc/decision, the applicant becomes KYC_APPROVED or REJECTED
+      await decide.mutateAsync({
+        applicantId: applicant.id,
+        status: pending,
+        remarks: remarks.trim(),
+        verifiedBy: user.id,
+      })
+      onDecided?.(applicant, pending, remarks.trim())
+      close()
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : 'Could not save the decision. Please try again.')
+    }
   }
 
   const approving = pending === 'APPROVED'
@@ -96,11 +116,24 @@ export function KycDecisionDialog({ applicant, onClose, onDecided }: KycDecision
                     <Text size="sm">{remarks.trim()}</Text>
                   </div>
                 )}
+                {serverError && (
+                  <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />}>
+                    <Text size="sm">{serverError}</Text>
+                  </Alert>
+                )}
                 <div className="flex justify-end gap-2">
-                  <Button size="xs" variant="default" onClick={() => setPending(null)}>
+                  <Button
+                    size="xs"
+                    variant="default"
+                    disabled={decide.isPending}
+                    onClick={() => {
+                      setServerError(null)
+                      setPending(null)
+                    }}
+                  >
                     Back
                   </Button>
-                  <Button size="xs" color={approving ? undefined : 'red'} onClick={confirm}>
+                  <Button size="xs" color={approving ? undefined : 'red'} loading={decide.isPending} onClick={confirm}>
                     {approving ? 'Confirm approval' : 'Confirm rejection'}
                   </Button>
                 </div>
@@ -145,7 +178,7 @@ export function KycDecisionDialog({ applicant, onClose, onDecided }: KycDecision
                   </Text>
                   <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
                     {[
-                      ['NIDA number', nidaFor(applicant)],
+                      ['NIDA number', nida],
                       ['Name', applicant.name],
                       ['Phone', applicant.phone],
                       ['Nationality', applicant.nationality],

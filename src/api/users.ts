@@ -3,6 +3,7 @@ import { userSchema, type UserRecord } from './schemas'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { User } from '../pages/administration/users/usersData'
 import { formatUserName } from '../utils/userName'
+import { useMemo } from 'react'
 /* ---------- small readers, the response shape is not documented so nothing is trusted blindly ---------- */
 
 const rec = (v: unknown): Record<string, unknown> =>
@@ -139,3 +140,16 @@ export function useUserMutations() {
 
 // raw CRUD, needs the session token
 export const getUserRequest = (id: number) => api<UserRecord>(`/api/users/${id}`, { schema: userSchema })
+
+// user id -> display name, so the pages can show who did something
+export function useUserNames() {
+  const { data } = useApiUsers()
+  return useMemo(() => {
+    const map = new Map<number, string>()
+    for (const raw of data ?? []) {
+      const u = toUser(raw, [])
+      if (u.id) map.set(u.id, u.name !== 'Unknown' ? u.name : u.username)
+    }
+    return map
+  }, [data])
+}

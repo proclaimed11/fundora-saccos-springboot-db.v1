@@ -9,7 +9,6 @@ import {
   REQUIRED_DOCUMENTS,
   STATUS,
   accountsFor,
-  activityFor,
   debtsFor,
   documentsFor,
   financialFor,
@@ -21,6 +20,7 @@ import {
   type ExistingDebt,
   type FinancialProfile,
   type LoanRow,
+  type ActivityEvent
 } from './applicantsData'
 import { MemberAccountDialog, type AccountInput } from './memberAccountDialog'
 import { DebtDialog, FinancialProfileDialog, type DebtInput } from './financialDialogs'
@@ -29,6 +29,9 @@ import { DocumentViewer } from '../../components/documentViewer'
 import { DocumentDialog, isImage, sizeText, type DocumentInput } from './documentDialogs'
 import { Can } from '../auth/requirePermission'
 import { IdentificationSection } from './identificationSection'
+import { ErrorState, LoadingState } from '../../components/pageState'
+import { useApplicantHistory } from '../../api/applicants'
+import { useUserNames } from '../../api/users'
 
 /* ---------- small helpers ---------- */
 
@@ -49,21 +52,58 @@ function SectionTitle({ children }: { children: string }) {
   )
 }
 
+// the label and icon for each status an applicant can move to
+const STAGE_EVENT: Record<string, { title: string; icon: string }> = {
+  PENDING_OTP: { title: 'Applicant registered', icon: 'user-round-plus' },
+  PENDING_KYC: { title: 'OTP verified', icon: 'shield' },
+  KYC_APPROVED: { title: 'KYC approved', icon: 'circle-check' },
+  REJECTED: { title: 'KYC rejected', icon: 'circle-x' },
+}
+
+// SOME_STATUS -> Some status
+const humanize = (text: string) => {
+  const spaced = text.replace(/_/g, ' ').trim().toLowerCase()
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : 'Status changed'
+}
+
 function Timeline({ applicant, limit }: { applicant: Applicant; limit?: number }) {
-  const events = activityFor(applicant).slice(0, limit)
+  // GET /api/applicant-status-historys/applicant/{id}
+  const history = useApplicantHistory(applicant.id)
+  const names = useUserNames()
+
+  if (history.isLoading) return <LoadingState rows={3} />
+  if (history.error) {
+    return <ErrorState compact message={history.error.message} onRetry={() => void history.refetch()} />
+  }
+
+  // newest first
+  const rows = [...(history.data ?? [])].sort(
+    (a, b) => (b.changedAt ?? '').localeCompare(a.changedAt ?? '') || b.id - a.id,
+  )
+
+  // an applicant registered before the history existed has no rows, so the registration is shown from the record
+  const events: ActivityEvent[] =
+    rows.length === 0
+      ? [{ title: 'Applicant registered', detail: `Application number ${applicant.applicantNo}`, date: applicant.registered, icon: 'user-round-plus' }]
+      : rows.map((r) => {
+          const info = STAGE_EVENT[r.newStatus ?? ''] ?? { title: humanize(r.newStatus ?? ''), icon: 'clipboard' }
+          const who = r.changedBy != null ? `by ${names.get(r.changedBy) ?? `User #${r.changedBy}`}` : ''
+          const detail =
+            [r.remarks, who].filter(Boolean).join(' · ') || (r.oldStatus ? `${r.oldStatus} → ${r.newStatus}` : '')
+          return { title: info.title, detail, date: r.changedAt ?? '', icon: info.icon }
+        })
+
   return (
     <ul className="space-y-4">
-      {events.map((e) => (
-        <li key={e.title} className="flex gap-3">
+      {events.slice(0, limit).map((e, i) => (
+        <li key={`${e.title}-${i}`} className="flex gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500">
             <AppIcon name={e.icon} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-3">
               <span className="text-sm font-medium text-gray-800">{e.title}</span>
-              <span className="shrink-0 text-xs text-gray-400">
-                {dayjs(e.date).format('MMM D, YYYY')}
-              </span>
+              <span className="shrink-0 text-xs text-gray-400">{e.date ? dayjs(e.date).format('MMM D, YYYY') : ''}</span>
             </div>
             <div className="text-xs text-gray-500">{e.detail}</div>
           </div>
@@ -76,6 +116,13 @@ function Timeline({ applicant, limit }: { applicant: Applicant; limit?: number }
 /* ---------- tabs ---------- */
 
 export function OverviewTab({ applicant }: { applicant: Applicant }) {
+  const history = useApplicantHistory(applicant.id)
+  // the date the applicant reached a status, the latest one if it happened twice
+  const reachedOn = (status: string) => {
+    const row = [...(history.data ?? [])].reverse().find((h) => h.newStatus === status)
+    return row?.changedAt ? dayjs(row.changedAt).format('MMM D, YYYY') : undefined
+  }
+
   const loans = loansFor(applicant)
   const active = loans.filter((l) => l.status === 'Active')
   const outstanding = active.reduce((sum, l) => sum + l.outstanding, 0)
@@ -93,9 +140,9 @@ export function OverviewTab({ applicant }: { applicant: Applicant }) {
         size="xs"
         color={applicant.status === 'REJECTED' ? 'red' : 'brand'}
       >
-        <Stepper.Step label="Registered" />
-        <Stepper.Step label="OTP verified" />
-        <Stepper.Step label="KYC approved" />
+        <Stepper.Step label="Registered" description={reachedOn('PENDING_OTP')} />
+        <Stepper.Step label="OTP verified" description={reachedOn('PENDING_KYC')} />
+        <Stepper.Step label="KYC approved" description={reachedOn('KYC_APPROVED')} />
       </Stepper>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

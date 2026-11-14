@@ -28,6 +28,9 @@ export type ApplicantEditInput = Pick<
 type Props = {
   opened: boolean
   applicant: Applicant
+  saving?: boolean
+  /** a message from the API, shown inside the dialog */
+  serverError?: string | null
   onClose: () => void
   onSubmit: (input: ApplicantEditInput) => void
 }
@@ -66,7 +69,7 @@ const fromApplicant = (a: Applicant): Values => ({
   isReturning: a.isReturning,
 })
 
-export function ApplicantEditDialog({ opened, applicant, onClose, onSubmit }: Props) {
+export function ApplicantEditDialog({ opened, applicant, saving = false, serverError, onClose, onSubmit }: Props) {
   const [values, setValues] = useState<Values>(() => fromApplicant(applicant))
   const [errors, setErrors] = useState<Errors>({})
 
@@ -222,11 +225,17 @@ export function ApplicantEditDialog({ opened, applicant, onClose, onSubmit }: Pr
           </Text>
         </Alert>
 
+        {serverError && (
+          <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />}>
+            <Text size="sm">{serverError}</Text>
+          </Alert>
+        )}
+
         <div className="flex justify-end gap-2">
-          <Button size="xs" variant="default" onClick={onClose}>
+          <Button size="xs" variant="default" disabled={saving} onClick={onClose}>
             Cancel
           </Button>
-          <Button size="xs" leftSection={<AppIcon name="check" />} onClick={submit}>
+          <Button size="xs" loading={saving} leftSection={<AppIcon name="check" />} onClick={submit}>
             Save changes
           </Button>
         </div>

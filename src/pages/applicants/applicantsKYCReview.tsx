@@ -6,11 +6,11 @@ import { Badge, Button, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
-import { nidaFor, type Applicant } from './applicantsData'
+import type { Applicant } from './applicantsData'
 import { PageState } from '../../components/pageState'
-import { useApplicants } from '../../api/applicants'
 import { KycDecisionDialog } from './applicantKYCDecisionDialog'
 import { usePageAccess } from '../auth/usePageAccess'
+import { useAllIdentifications, useApplicants } from '../../api/applicants'
 
 type Row = Applicant & { nida: string; waiting: number }
 
@@ -22,18 +22,19 @@ const typeOptions = [
 export function KycReview() {
   const navigate = useNavigate()
   const [reviewing, setReviewing] = useState<Row | null>(null)
-  // UI only: decided applicants just leave the queue for this session
-  const [decided, setDecided] = useState<number[]>([])
   const { canApprove } = usePageAccess('applicants', 'kyc-review')
 
-    // GET /api/applicants, the queue is the ones still waiting for a KYC decision
+  // GET /api/applicants, the queue is the ones still waiting for a KYC decision
   const { data: all = [], isLoading, error, refetch } = useApplicants()
+  const { data: identifications = [] } = useAllIdentifications()
+  const nidaOf = (a: Applicant) =>
+    identifications.find((i) => i.applicantId === a.id && i.type === 'NIDA')?.number ?? '—'
 
   const rows: Row[] = all
-    .filter((a) => a.status === 'PENDING_KYC' && !decided.includes(a.id))
+    .filter((a) => a.status === 'PENDING_KYC')
     .map((a) => ({
       ...a,
-      nida: nidaFor(a),
+      nida: nidaOf(a),
       waiting: dayjs().diff(a.registered, 'day'),
     }))
 
@@ -149,11 +150,7 @@ export function KycReview() {
       </div>
       </PageState>
 
-      <KycDecisionDialog
-        applicant={reviewing}
-        onClose={() => setReviewing(null)}
-        onDecided={(a) => setDecided((prev) => [...prev, a.id])}
-      />
+      <KycDecisionDialog applicant={reviewing} onClose={() => setReviewing(null)} />
     </DashboardLayout>
   )
 }

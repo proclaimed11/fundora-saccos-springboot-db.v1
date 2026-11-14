@@ -1,9 +1,12 @@
 import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Modal, Text, TextInput } from '@mantine/core'
+import { sendOtpRequest, verifyOtpRequest } from '../../api/applicants'
 import type { Applicant } from './applicantsData'
 
 const EMAIL = /^\S+@\S+\.\S+$/
+
+const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
 
 type Props = {
   /** the applicant waiting for OTP verification, null keeps the dialog closed */
@@ -30,6 +33,7 @@ export function SendOtpDialog({ applicant, onClose, onVerified }: Props) {
   }, [applicant])
 
   const send = async () => {
+    if (!applicant) return
     if (!EMAIL.test(destination.trim())) {
       setDestError('Enter a valid email address')
       return
@@ -37,11 +41,13 @@ export function SendOtpDialog({ applicant, onClose, onVerified }: Props) {
     setDestError(undefined)
     setLoading(true)
     try {
-      // TODO: POST /api/onboarding/otp/send { applicantId, channel: 'EMAIL', destination }
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // POST /api/onboarding/otp/send
+      await sendOtpRequest(applicant.id, destination.trim())
       setSent(true)
       setCode('')
       setCodeError(undefined)
+    } catch (err) {
+      setDestError(messageOf(err, 'Could not send the code. Please try again.'))
     } finally {
       setLoading(false)
     }
@@ -53,15 +59,14 @@ export function SendOtpDialog({ applicant, onClose, onVerified }: Props) {
       setCodeError('Enter the 6-digit code')
       return
     }
-    // UI only: these codes are here so the API error messages can be previewed
-    if (code === '000000') return setCodeError('Invalid OTP code')
-    if (code === '111111') return setCodeError('OTP has expired')
-
     setLoading(true)
     try {
-      // TODO: POST /api/onboarding/otp/verify { applicantId, code }, the applicant then moves to PENDING_KYC
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // POST /api/onboarding/otp/verify, the applicant moves to PENDING_KYC and the cached applicants refresh
+      await verifyOtpRequest(applicant.id, code)
       onVerified(applicant)
+    } catch (err) {
+      // for example "Invalid OTP code" or "OTP has expired"
+      setCodeError(messageOf(err, 'Could not verify the code. Please try again.'))
     } finally {
       setLoading(false)
     }

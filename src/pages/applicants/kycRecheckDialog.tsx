@@ -2,7 +2,8 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import dayjs from 'dayjs'
 import { Alert, Button, Modal, Text } from '@mantine/core'
-import { kycHistoryFor, recheckKyc, type Applicant, type RecheckResult } from './applicantsData'
+import { checkReturningKycRequest } from '../../api/applicants'
+import type { Applicant } from './applicantsData'
 
 type Props = {
   /** the applicant to check, null keeps the dialog closed */
@@ -10,28 +11,43 @@ type Props = {
   onClose: () => void
 }
 
+type Result = { valid: boolean; message: string; expiresAt: string | null }
+
 export function RecheckKycDialog({ applicant, onClose }: Props) {
-  const [result, setResult] = useState<RecheckResult | null>(null)
+  const [result, setResult] = useState<Result | null>(null)
+  // a real failure, not the "no valid KYC" answer
+  const [failure, setFailure] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   // every time it opens it starts without a result
   useEffect(() => {
     setResult(null)
+    setFailure(null)
   }, [applicant])
 
   const run = async () => {
     if (!applicant) return
     setLoading(true)
+    setFailure(null)
     try {
-      // TODO: POST /api/onboarding/kyc/check-returning/{applicantId}
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      setResult(recheckKyc(kycHistoryFor(applicant)))
+      // POST /api/onboarding/kyc/check-returning/{applicantId}
+      const res = await checkReturningKycRequest(applicant.id)
+      setResult({
+        valid: true,
+        message: res.message ?? 'Existing KYC still valid; applicant may proceed',
+        expiresAt: res.data?.expiresAt ?? null,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      // "No valid existing KYC found; full KYC required" is an answer, anything else is a failure
+      if (/no valid/i.test(message)) setResult({ valid: false, message, expiresAt: null })
+      else setFailure(message || 'Could not run the check. Please try again.')
     } finally {
       setLoading(false)
     }
   }
 
-  const left = result?.record?.expiresAt ? dayjs(result.record.expiresAt).diff(dayjs(), 'day') : 0
+  const left = result?.expiresAt ? dayjs(result.expiresAt).diff(dayjs(), 'day') : 0
 
   return (
     <Modal opened={!!applicant} onClose={onClose} title="Re-check KYC" centered>
@@ -49,19 +65,22 @@ export function RecheckKycDialog({ applicant, onClose }: Props) {
             found, the applicant can skip full KYC.
           </Text>
 
+          {failure && (
+            <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />}>
+              <Text size="sm">{failure}</Text>
+            </Alert>
+          )}
+
           {result &&
-            (result.valid && result.record ? (
+            (result.valid ? (
               <Alert color="green" variant="light" title="KYC is still valid" icon={<AppIcon name="circle-check" />}>
                 <Text size="sm">{result.message}.</Text>
-                <div className="mt-2 space-y-1 text-xs text-gray-600">
-                  <div>
-                    Approved {dayjs(result.record.date).format('MMM D, YYYY')} by {result.record.verifiedBy}
+                {result.expiresAt && (
+                  <div className="mt-2 text-xs text-gray-600">
+                    Valid until {dayjs(result.expiresAt).format('MMM D, YYYY')} ({left} {left === 1 ? 'day' : 'days'}{' '}
+                    left)
                   </div>
-                  <div>
-                    Valid until {dayjs(result.record.expiresAt).format('MMM D, YYYY')} ({left}{' '}
-                    {left === 1 ? 'day' : 'days'} left)
-                  </div>
-                </div>
+                )}
               </Alert>
             ) : (
               <Alert color="red" variant="light" title="Full KYC required" icon={<AppIcon name="circle-x" />}>

@@ -4,9 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Alert, Badge, Button, Tabs, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
-import { STATUS, initials, stageActions, type ApplicantStatus } from './applicantsData'
+import { STATUS, initials, stageActions } from './applicantsData'
 import { ApiError } from '../../api/client'
-import { useApplicant } from '../../api/applicants'
 import { ErrorState, LoadingState } from '../../components/pageState'
 import {
   AccountsTab,
@@ -23,6 +22,7 @@ import { LOANS, applications } from '../loans/loanApplicationsData'
 import { RecheckKycDialog } from './kycRecheckDialog'
 import { SendOtpDialog } from './otpDialog'
 import { usePageAccess } from '../auth/usePageAccess'
+import { useApplicant, useUpdateApplicant } from '../../api/applicants'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -44,10 +44,8 @@ export function ApplicantProfile() {
   const [recheckOpen, setRecheckOpen] = useState(false)
   const [otpOpen, setOtpOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  // UI only: a decision changes the status for this session, nothing is saved yet
-  const [statusOverride, setStatusOverride] = useState<ApplicantStatus | null>(null)
-  // UI only: edits made in this session, nothing is saved yet
-  const [changes, setChanges] = useState<ApplicantEditInput | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+  const updateApplicant = useUpdateApplicant()
 
   // success banner fades away on its own
   useEffect(() => {
@@ -56,9 +54,8 @@ export function ApplicantProfile() {
     return () => clearTimeout(t)
   }, [notice])
 
-  // GET /api/applicants/{id}
-  const { data: base, isLoading, error, refetch } = useApplicant(id)
-  const applicant = base ? { ...base, ...changes, status: statusOverride ?? base.status } : undefined
+  // GET /api/applicants/{id}, a decision, a verified code or an edit refreshes it
+  const { data: applicant, isLoading, error, refetch } = useApplicant(id)
 
   const { canEdit, canDelete } = usePageAccess('applicants', 'applicants')
   const { canApprove: canDecideKyc } = usePageAccess('applicants', 'kyc-review')
@@ -110,11 +107,33 @@ export function ApplicantProfile() {
   const allowed = (label: string) =>
   label === 'Review KYC' ? canDecideKyc : label === 'Start loan application' ? canStartLoan : canEdit
 
-  const saveEdit = (input: ApplicantEditInput) => {
-    // TODO: PUT /api/applicants/{id}
-    setChanges(input)
-    setNotice(`${input.name}'s details were updated.`)
-    setEditOpen(false)
+  const saveEdit = async (input: ApplicantEditInput) => {
+    setEditError(null)
+    try {
+      // PUT /api/applicants/{id}
+      await updateApplicant.mutateAsync({
+        id: applicant.id,
+        edit: {
+          firstName: input.firstName,
+          middleName: input.middleName,
+          lastName: input.lastName,
+          gender: input.gender,
+          dateOfBirth: input.dateOfBirth,
+          phone: input.phone,
+          email: input.email,
+          address: input.address,
+          nationality: input.nationality,
+          occupation: input.occupation,
+          locationName: input.location,
+          locationPin: input.locationPin,
+          isReturning: input.isReturning,
+        },
+      })
+      setNotice(`${input.name}'s details were updated.`)
+      setEditOpen(false)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not save the changes. Please try again.')
+    }
   }
 
     // the buttons shown depend on the stage, each one opens its own dialog
@@ -279,8 +298,8 @@ export function ApplicantProfile() {
       <KycDecisionDialog
         applicant={reviewOpen ? applicant : null}
         onClose={() => setReviewOpen(false)}
-        onDecided={(_, decision) =>
-          setStatusOverride(decision === 'APPROVED' ? 'KYC_APPROVED' : 'REJECTED')
+        onDecided={(a, decision) =>
+          setNotice(`${a.name}'s KYC was ${decision === 'APPROVED' ? 'approved' : 'rejected'}.`)
         }
       />
 
@@ -290,7 +309,6 @@ export function ApplicantProfile() {
         applicant={otpOpen ? applicant : null}
         onClose={() => setOtpOpen(false)}
         onVerified={(a) => {
-          setStatusOverride('PENDING_KYC')
           setNotice(`${a.name} was verified. They are now pending KYC review.`)
           setOtpOpen(false)
         }}
@@ -299,7 +317,12 @@ export function ApplicantProfile() {
       <ApplicantEditDialog
         opened={editOpen}
         applicant={applicant}
-        onClose={() => setEditOpen(false)}
+        saving={updateApplicant.isPending}
+        serverError={editError}
+        onClose={() => {
+          setEditOpen(false)
+          setEditError(null)
+        }}
         onSubmit={saveEdit}
       />
 
