@@ -140,6 +140,9 @@ export function Applicants() {
             searchKeys={['name', 'applicantNo', 'phone']}
             filters={{ status: statusOptions, isReturning: typeOptions, registered: 'date' }}
             selectCheckbox={canDelete}
+            confirmModal
+            confirmHeading="Delete selected applicants?"
+            confirmBody="The selected applicant records will be permanently deleted. This action cannot be undone."
             onDelete={canDelete ? async (rows) => {
               setDeleteError(null)
               const results = await Promise.allSettled(rows.map((r) => deleteApplicant.mutateAsync(r.id)))

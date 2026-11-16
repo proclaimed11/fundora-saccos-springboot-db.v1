@@ -77,7 +77,9 @@ export type CustomTableProps<T extends object> = {
   selectCheckbox?: boolean
   /** shows the Delete button in the selection bar, you update your own data here */
   onDelete?: (rows: T[]) => void
-  confirmDelete?: boolean
+  confirmModal?: boolean
+  confirmHeading?: string | false
+  confirmBody?: string | false
 
   /* collapsible rows */
   collapsible?: boolean
@@ -367,7 +369,9 @@ export function CustomTable<T extends object>({
 
   selectCheckbox = false,
   onDelete,
-  confirmDelete = true,
+  confirmModal = true,
+  confirmHeading,
+  confirmBody,
 
   collapsible = false,
   renderExpanded,
@@ -889,7 +893,7 @@ export function CustomTable<T extends object>({
                 size="compact-xs"
                 color="red"
                 leftSection={<AppIcon name="trash-2" />}
-                onClick={() => (confirmDelete ? setConfirmOpen(true) : runDelete())}
+                onClick={() => (confirmModal ? setConfirmOpen(true) : runDelete())}
               >
                 Delete selected ({selectedRecords.length})
               </Button>
@@ -960,15 +964,19 @@ export function CustomTable<T extends object>({
       <Modal
         opened={confirmOpen}
         onClose={() => setConfirmOpen(false)}
-        title="Delete selected rows"
+        title={confirmHeading === false ? undefined : confirmHeading ?? 'Delete selected rows'}
         centered
         size="sm"
       >
         <Stack gap="md">
-          <Text size="sm">
-            You're about to delete {selectedRecords.length}{' '}
-            {selectedRecords.length === 1 ? 'row' : 'rows'}. This can't be undone.
-          </Text>
+          {confirmBody !== false && (
+            <Text size="sm">
+              {confirmBody ??
+                `You're about to delete ${selectedRecords.length} ${
+                  selectedRecords.length === 1 ? 'row' : 'rows'
+                }. This can't be undone.`}
+            </Text>
+          )}
           <Group justify="flex-end" gap="xs">
             <Button size="xs" variant="default" onClick={() => setConfirmOpen(false)}>
               Cancel

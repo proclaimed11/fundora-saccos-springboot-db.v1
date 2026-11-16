@@ -190,6 +190,9 @@ export function LoanApplications() {
           searchKeys={['applicationNo', 'applicantName', 'loanOfficer']}
           filters={{ status: statusOptions, interestMethod: methodOptions, created: 'date' }}
           selectCheckbox
+          confirmModal
+          confirmHeading="Delete selected loan applications?"
+          confirmBody="The selected loan applications will be deleted. This action cannot be undone."
           onDelete={() => {}} // UI only for now
           defaultSort={{ accessor: 'created', direction: 'desc' }}
           onRowClick={(row) => navigate(`/loan-applications/${row.id}`)}

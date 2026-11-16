@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Badge, Button, Text } from '@mantine/core'
+import { Button, Text } from '@mantine/core'
 import { ContentCard } from '../contentCard'
-import { CustomTable, type CustomTableColumn } from '../customTable/customTable'
+import { AppIcon } from '../appIcon'
+import { initials } from '../../pages/applicants/applicantsData'
 
 export type QueueRow = {
   id: number | string
@@ -15,115 +17,116 @@ export type QueueRow = {
   valueSub?: string
   /** highlight the waiting text in amber */
   late?: boolean
-  /** where the View button goes */
+  /** where the row goes when clicked */
   to: string
+}
+
+export type QueueTab = {
+  value: string
+  label: string
+  rows: QueueRow[]
+  viewAllTo: string
+  emptyText: string
 }
 
 type QueueCardProps = {
   title: string
-  /** how many items are waiting in total, shown next to the title */
-  count: number
-  rows: QueueRow[]
-  /** the full page, opened by "View all" */
-  viewAllTo: string
-  emptyText: string
-  /** column titles, the defaults suit loan items */
-  titleHeader?: string
-  valueHeader?: string
-  /** how many rows to show, default 4 */
-  limit?: number
-  /** the CustomTable size, default 'xs' */
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+  tabs: QueueTab[]
 }
 
-export function QueueCard({
-  title,
-  count,
-  rows,
-  viewAllTo,
-  emptyText,
-  titleHeader = 'Borrower',
-  valueHeader = 'Amount',
-  limit = 4,
-  size = 'xs',
-}: QueueCardProps) {
+export function QueueCard({ title, tabs }: QueueCardProps) {
   const navigate = useNavigate()
-  const shown = rows.slice(0, limit)
-  const hidden = rows.length - shown.length
+  const [selectedValue, setSelectedValue] = useState(tabs[0]?.value ?? '')
+  const selectedTab = tabs.find((tab) => tab.value === selectedValue) ?? tabs[0]
 
-  const columns: CustomTableColumn<QueueRow>[] = [
-    {
-      accessor: 'title',
-      header: titleHeader,
-      sortable: false,
-      render: (r) => (
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-gray-800">{r.title}</div>
-          <div className="truncate text-xs text-gray-500">{r.sub}</div>
-        </div>
-      ),
-    },
-    {
-      accessor: 'value',
-      header: valueHeader,
-      sortable: false,
-      render: (r) => (
-        <div>
-          <div className="whitespace-nowrap text-sm font-medium text-gray-800">{r.value}</div>
-          {r.valueSub && (
-            <div className={`whitespace-nowrap text-xs ${r.late ? 'font-medium text-amber-600' : 'text-gray-500'}`}>
-              {r.valueSub}
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      // the action for this row; "id" is only used as the accessor
-      accessor: 'id',
-      header: '',
-      sortable: false,
-      align: 'right',
-      width: 70,
-      render: (r) => (
-        <Button size="compact-xs" variant="light" onClick={() => navigate(r.to)}>
-          View
-        </Button>
-      ),
-    },
-  ]
+  if (!selectedTab) return null
 
+  const shown = selectedTab.rows.slice(0, 3)
+  const hidden = selectedTab.rows.length - shown.length
   return (
     <ContentCard
       title={title}
       headerColor="#fcfdfc"
       headerTextColor="#1f2937"
-      action={
-        <div className="flex items-center gap-2">
-          <Badge variant="light" color={count > 0 ? 'brand' : 'gray'} radius="sm" size="sm">
-            {count}
-          </Badge>
-          <Button size="compact-xs" variant="default" onClick={() => navigate(viewAllTo)}>
-            View all
-          </Button>
-        </div>
-      }
+      flush
     >
-      <CustomTable<QueueRow>
-        size={size}
-        data={shown}
-        columns={columns}
-        pagination={false}
-        // keep the order given, the queues are already oldest first
-        defaultSort={null}
-        noRecordText={emptyText}
-      />
+      <div className="scrollbar-hidden mb-3 max-w-full overflow-x-auto px-3 pt-3">
+        <div role="group" aria-label="Queue categories" className="flex w-max min-w-full border-b border-gray-100">
+          {tabs.map((tab) => {
+            const selected = tab.value === selectedTab.value
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSelectedValue(tab.value)}
+                className={`shrink-0 border-b-2 px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${
+                  selected
+                    ? 'border-brand text-brand'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                {tab.label}
+                <span className={`ml-1.5 ${selected ? 'text-brand' : 'text-gray-400'}`}>
+                  {tab.rows.length}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {shown.length === 0 ? (
+        <Text size="sm" c="dimmed" ta="center" py="lg">
+          {selectedTab.emptyText}
+        </Text>
+      ) : (
+        <ul>
+          {shown.map((r) => (
+            <li key={r.id}>
+              <button
+                type="button"
+                onClick={() => navigate(r.to)}
+                className="group flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-300"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-[11px] font-medium text-brand-dark">
+                  {initials(r.title)}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-gray-800">{r.title}</span>
+                  <span className="block truncate text-xs text-gray-500">
+                    {r.sub}
+                    {r.valueSub && (
+                      <>
+                        {' · '}
+                        <span className={r.late ? 'font-medium text-amber-600' : ''}>{r.valueSub}</span>
+                      </>
+                    )}
+                  </span>
+                </span>
+                <span className="shrink-0 whitespace-nowrap text-sm font-medium text-gray-800">{r.value}</span>
+                <AppIcon
+                  name="chevron-right"
+                  size={14}
+                  className="shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-brand"
+                />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {hidden > 0 && (
-        <Text size="xs" c="dimmed" ta="center" mt="xs">
-          + {hidden} more, open View all to see them
+        <Text size="xs" c="dimmed" ta="center" py={8} className="border-t border-gray-100">
+          + {hidden} more
         </Text>
       )}
+
+      <div className="flex justify-end border-t border-gray-100 px-3 py-2">
+        <Button size="compact-xs" variant="subtle" color="gray" onClick={() => navigate(selectedTab.viewAllTo)}>
+          View all
+        </Button>
+      </div>
     </ContentCard>
   )
 }

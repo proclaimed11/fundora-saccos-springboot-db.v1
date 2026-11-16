@@ -3,7 +3,7 @@ import { Text } from '@mantine/core'
 import { DashboardLayout } from '../components/layout/dashboardLayout'
 import { LoansByStatus } from '../components/dashboard/loansByStatus'
 import { TrendChart, type TrendPoint } from '../components/dashboard/trendChart'
-import { QueueCard, type QueueRow } from '../components/dashboard/queueCard'
+import { QueueCard, type QueueRow, type QueueTab } from '../components/dashboard/queueCard'
 import { BucketChart, type Bucket } from '../components/dashboard/bucketChart'
 import { StatWidget } from '../components/statsWidgets'
 import { formatTzs } from '../utils/format'
@@ -19,6 +19,7 @@ import {
 } from './loans/loanApplicationsData'
 import { applicants } from './applicants/applicantsData'
 import { SAMPLE_ACCOUNTS } from './accounting/accountingData'
+import { SAMPLE_CASES } from './collections/collectionsData'
 import { HomeFallback } from '../components/dashboard/homeFallback'
 
 // the grid classes for however many stat cards a role can see, so the row always fills the width
@@ -37,6 +38,10 @@ const SIDE_COLS: Record<number, string> = {
   2: 'lg:grid-cols-2',
   3: 'lg:grid-cols-3',
 }
+
+// 8000000 -> "TZS 8M", 1200000 -> "TZS 1.2M"
+const shortTzs = (n: number) =>
+  `TZS ${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(n)}`
 
 /* ---------- key numbers, built from the same sample data as their pages ---------- */
 
@@ -127,7 +132,7 @@ const approvalQueue: Queue[] = applications
         id: a.id,
         title: a.applicantName,
         sub: a.applicationNo,
-        value: formatTzs(a.requestedAmount),
+        value: shortTzs(a.requestedAmount),
         valueSub: `Waiting ${waiting(days)}`,
         late: days > LATE_APPROVAL_DAYS,
         to: `/loan-approvals?review=${a.id}`,
@@ -150,6 +155,24 @@ const kycQueue: Queue[] = applicants
         valueSub: `Waiting ${waiting(days)}`,
         late: days > LATE_KYC_DAYS,
         to: `/applicants/${a.id}`,
+      },
+    }
+  })
+
+const overdueCollectionsQueue: Queue[] = views
+  .filter((loan) => loan.state === 'OVERDUE' && loan.overdueAmount > 0)
+  .map((loan) => {
+    const openCase = SAMPLE_CASES.find((collectionCase) => collectionCase.loanId === loan.id && collectionCase.status === 'OPEN')
+    return {
+      days: loan.overdueDays,
+      row: {
+        id: loan.id,
+        title: loan.applicantName,
+        sub: loan.loanNo,
+        value: formatTzs(loan.overdueAmount),
+        valueSub: `${loan.overdueDays} days overdue`,
+        late: true,
+        to: openCase ? `/collection-cases?case=${openCase.id}` : `/loans/${loan.id}`,
       },
     }
   })
@@ -182,10 +205,40 @@ export function Dashboard() {
   const showApprovals = show('approvals')
   const showKyc = show('kyc')
   const showAging = show('aging')
+  const showOverdueCollections = show('overdue-collections') && can('collections', 'view', 'collection-cases')
+  const queueTabs: QueueTab[] = [
+    ...(showApprovals
+      ? [{
+          value: 'approvals',
+          label: 'Pending approvals',
+          rows: approvalRows,
+          viewAllTo: '/loan-approvals',
+          emptyText: 'Nothing is waiting for approval',
+        }]
+      : []),
+    ...(showKyc
+      ? [{
+          value: 'kyc',
+          label: 'KYC review',
+          rows: kycRows,
+          viewAllTo: '/kyc-review',
+          emptyText: 'No applicants are waiting for KYC review',
+        }]
+      : []),
+    ...(showOverdueCollections
+      ? [{
+          value: 'overdue-collections',
+          label: 'Overdue collections',
+          rows: oldestFirst(overdueCollectionsQueue),
+          viewAllTo: '/collection-cases',
+          emptyText: 'No overdue loans need follow-up',
+        }]
+      : []),
+  ]
 
   const leftVisible = showTrend || showStatus || showNpl
-  const rightVisible = showApprovals || showKyc || showAging
-  const sideCount = [showApprovals, showKyc, showAging].filter(Boolean).length
+  const rightVisible = showApprovals || showKyc || showOverdueCollections || showAging
+  const sideCount = [showApprovals || showKyc || showOverdueCollections, showAging].filter(Boolean).length
   const nothing = visibleStats.length === 0 && !leftVisible && !rightVisible
 
   return (
@@ -253,25 +306,8 @@ export function Dashboard() {
 
           {rightVisible && (
             <div className={leftVisible ? 'space-y-4' : `grid items-start gap-4 ${SIDE_COLS[sideCount]}`}>
-              {showApprovals && (
-                <QueueCard
-                  title="Pending Approvals"
-                  count={approvalRows.length}
-                  rows={approvalRows}
-                  viewAllTo="/loan-approvals"
-                  emptyText="Nothing is waiting for approval"
-                />
-              )}
-              {showKyc && (
-                <QueueCard
-                  title="KYC To Review"
-                  count={kycRows.length}
-                  rows={kycRows}
-                  viewAllTo="/kyc-review"
-                  emptyText="No applicants are waiting for KYC review"
-                  titleHeader="Applicant"
-                  valueHeader="Type"
-                />
+              {queueTabs.length > 0 && (
+                <QueueCard title="Review queue" tabs={queueTabs} />
               )}
               {showAging && (
                 <BucketChart

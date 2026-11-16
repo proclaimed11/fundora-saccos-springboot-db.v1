@@ -52,6 +52,7 @@ function areaWithPages(key: string, label: string, pages: PageDef[], unit?: Modu
       { key: 'aging', label: 'Collections aging', actions: ['view'], kind: 'chart' },
       { key: 'approvals', label: 'Pending approvals', actions: ['view'], kind: 'list' },
       { key: 'kyc', label: 'KYC to review', actions: ['view'], kind: 'list' },
+      { key: 'overdue-collections', label: 'Overdue collections', actions: ['view'], kind: 'list' },
     ],
     'widgets',
   ),
@@ -284,7 +285,7 @@ export const SAMPLE_ROLES: Role[] = [
     level: LEVELS[1],
     system: true,
     permissions: {
-      ...widgets('loan-book', 'collections', 'status', 'approvals', 'kyc'),
+      ...widgets('loan-book', 'collections', 'status', 'approvals', 'kyc', 'overdue-collections'),
       applicants: ['view', 'create', 'edit'],
       loans: ['view', 'create', 'edit'],
       repayments: ['view', 'create'],
@@ -314,7 +315,7 @@ export const SAMPLE_ROLES: Role[] = [
     level: null,
     system: false,
     permissions: {
-      ...widgets('collections', 'aging', 'npl'),
+      ...widgets('collections', 'aging', 'npl', 'overdue-collections'),
       applicants: ['view'],
       repayments: ['view'],
       collections: ['view', 'create', 'edit'],

@@ -29,6 +29,15 @@ html {
   --color-loader: var(--app-loader);
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 .botanical-header-skin {
   position: relative;
   isolation: isolate;

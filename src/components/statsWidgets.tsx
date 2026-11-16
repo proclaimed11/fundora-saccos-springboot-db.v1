@@ -48,9 +48,9 @@ export function StatWidget({
     <Card
       padding={0}
       radius="md"
-      withBorder
+      withBorder={false}
       shadow="none"
-      className={`overflow-hidden border-gray-200/80 shadow-[0_8px_24px_rgba(76,87,125,0.08)] ${
+      className={`overflow-hidden border-0 shadow-[0_10px_30px_rgba(76,87,125,0.12)] ${
         onClick ? 'transition-colors hover:border-gray-300' : ''
       }`}
     >
@@ -121,7 +121,7 @@ export function StatWidget({
               style={{ color }}
               aria-hidden="true"
             >
-              <AppIcon name={icon} size={19} strokeWidth={1.75} />
+              <AppIcon name={icon} size={19} strokeWidth={1.5} />
             </span>
           </>
         )}
