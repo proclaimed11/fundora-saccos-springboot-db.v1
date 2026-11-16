@@ -2,22 +2,18 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import logo from '../assets/logo.png'
 
-// how long the overlay stays fully solid before it starts lifting
-const SHOW_MS = 700
+const SHOW_MS = 600
 
 export function Preloader() {
   const { pathname } = useLocation()
-  const [visible, setVisible] = useState(true) // true = shows on first load too
+  const [visible, setVisible] = useState(true)
   const [lastPath, setLastPath] = useState(pathname)
 
-  // the route changed: switch the overlay on during this same render,
-  // so the new page is never painted without it
   if (pathname !== lastPath) {
     setLastPath(pathname)
     setVisible(true)
   }
 
-  // start lifting after a short delay, on first load and after every route change
   useEffect(() => {
     if (!visible) return
     const timer = setTimeout(() => setVisible(false), SHOW_MS)
@@ -27,16 +23,24 @@ export function Preloader() {
   return (
     <div
       aria-hidden={!visible}
-      className={`fixed inset-0 z-[1000] flex flex-col items-center justify-center gap-5 bg-white ${
+      className={`route-loader fixed inset-0 z-[1000] flex items-center justify-center overflow-hidden ${
         visible
-          ? 'opacity-100 transition-none' // appears instantly, fully solid
-          : 'pointer-events-none opacity-0 transition-opacity duration-[2500ms] ease-in-out' // slow, graceful lift
+          ? 'opacity-100 transition-none'
+          : 'pointer-events-none opacity-0 transition-opacity duration-700 ease-out'
       }`}
     >
-      {/* no separate fade here: the logo and spinner are part of the overlay,
-          so they stay visible and only vanish at the final full transparency */}
-      <img src={logo} alt="" className="h-20 w-auto max-w-[80vw] object-contain" />
-      <div className="h-8 w-8 rounded-full border-[3px] border-gray-200 border-t-loader motion-safe:animate-spin" />
+      <div className="route-loader__ambient" aria-hidden="true" />
+      <div key={pathname} className="route-loader__content">
+        <div className="route-loader__mark">
+          <div className="route-loader__orbit route-loader__orbit--outer" />
+          <div className="route-loader__orbit route-loader__orbit--inner" />
+          <img src={logo} alt="" className="route-loader__logo" />
+        </div>
+        <div className="route-loader__progress" aria-hidden="true">
+          <span />
+        </div>
+        <span className="route-loader__label">Loading your workspace</span>
+      </div>
     </div>
   )
 }
