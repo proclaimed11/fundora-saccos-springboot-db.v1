@@ -368,3 +368,13 @@ export function useUpdateApplicant() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: applicantKeys.all }),
   })
 }
+
+export function useDeleteApplicant() {
+  return useMutation({
+    mutationFn: (id: number) => api(`/api/applicants/${id}`, { method: 'DELETE' }),
+    onSuccess: (_data, id) => {
+      queryClient.removeQueries({ queryKey: applicantKeys.one(id) })
+      return queryClient.invalidateQueries({ queryKey: applicantKeys.all })
+    },
+  })
+}

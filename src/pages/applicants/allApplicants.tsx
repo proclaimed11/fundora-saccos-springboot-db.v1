@@ -1,12 +1,13 @@
 import { AppIcon } from '../../components/appIcon'
-import { Badge, Button } from '@mantine/core'
+import { useState } from 'react'
+import { Alert, Badge, Button } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
 import { PageState } from '../../components/pageState'
 import { useNavigate } from 'react-router-dom'
 import { usePageAccess } from '../auth/usePageAccess'
-import { useApplicants } from '../../api/applicants'
+import { useApplicants, useDeleteApplicant } from '../../api/applicants'
 import { STATUS, type Applicant, type ApplicantStatus } from './applicantsData'
 
 // dropdown options for the Status header filter
@@ -32,6 +33,8 @@ function StatusBadge({ status }: { status: ApplicantStatus }) {
 export function Applicants() {
   const navigate = useNavigate()
   const { canCreate, canDelete } = usePageAccess('applicants', 'applicants')
+  const deleteApplicant = useDeleteApplicant()
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // GET /api/applicants
   const { data = [], isLoading, error, refetch } = useApplicants()
@@ -123,6 +126,11 @@ export function Applicants() {
 
         {/* row 2: table in a plain card, no heading */}
         <div className="mt-4 rounded-md bg-white p-4 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
+          {deleteError && (
+            <Alert color="red" variant="light" withCloseButton onClose={() => setDeleteError(null)} mb="sm">
+              {deleteError}
+            </Alert>
+          )}
           <CustomTable<Applicant>
             size="md"
             data={data}
@@ -132,8 +140,18 @@ export function Applicants() {
             searchKeys={['name', 'applicantNo', 'phone']}
             filters={{ status: statusOptions, isReturning: typeOptions, registered: 'date' }}
             selectCheckbox={canDelete}
-            // TODO: DELETE /api/applicants/{id} for each selected row
-            onDelete={canDelete ? () => {} : undefined}
+            onDelete={canDelete ? async (rows) => {
+              setDeleteError(null)
+              const results = await Promise.allSettled(rows.map((r) => deleteApplicant.mutateAsync(r.id)))
+              const failures = results.flatMap((result, index) => {
+                if (result.status === 'fulfilled') return []
+                const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+                return [`${rows[index].name}: ${reason}`]
+              })
+              if (failures.length > 0) {
+                setDeleteError(`Could not delete ${failures.length} applicant(s): ${failures.join('; ')}`)
+              }
+            } : undefined}
             defaultSort={{ accessor: 'registered', direction: 'desc' }}
             noRecordText="No applicants yet"
             onRowClick={(row) => navigate(`/applicants/${row.id}`)}

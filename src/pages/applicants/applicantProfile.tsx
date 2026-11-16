@@ -18,11 +18,10 @@ import {
 import { KycDecisionDialog } from './applicantKYCDecisionDialog'
 import { ApplicantEditDialog, type ApplicantEditInput } from './applicantEditDialog'
 import { ContractConfirmDialog } from '../loans/contractDialogs'
-import { LOANS, applications } from '../loans/loanApplicationsData'
 import { RecheckKycDialog } from './kycRecheckDialog'
 import { SendOtpDialog } from './otpDialog'
 import { usePageAccess } from '../auth/usePageAccess'
-import { useApplicant, useUpdateApplicant } from '../../api/applicants'
+import { useApplicant, useUpdateApplicant, useDeleteApplicant } from '../../api/applicants'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -46,6 +45,8 @@ export function ApplicantProfile() {
   const [notice, setNotice] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const updateApplicant = useUpdateApplicant()
+  const deleteApplicant = useDeleteApplicant()
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // success banner fades away on its own
   useEffect(() => {
@@ -61,7 +62,7 @@ export function ApplicantProfile() {
   const { canApprove: canDecideKyc } = usePageAccess('applicants', 'kyc-review')
   const { canCreate: canStartLoan } = usePageAccess('loans', 'applications')
 
-    const crumbs = [
+  const crumbs = [
     { label: 'Home', to: '/' },
     { label: 'Applicants', to: '/applicants' },
     { label: 'Applicant' },
@@ -105,7 +106,7 @@ export function ApplicantProfile() {
   }
 
   const allowed = (label: string) =>
-  label === 'Review KYC' ? canDecideKyc : label === 'Start loan application' ? canStartLoan : canEdit
+    label === 'Review KYC' ? canDecideKyc : label === 'Start loan application' ? canStartLoan : canEdit
 
   const saveEdit = async (input: ApplicantEditInput) => {
     setEditError(null)
@@ -136,7 +137,7 @@ export function ApplicantProfile() {
     }
   }
 
-    // the buttons shown depend on the stage, each one opens its own dialog
+  // the buttons shown depend on the stage, each one opens its own dialog
   const runStage = (label: string) => {
     if (label === 'Review KYC') setReviewOpen(true)
     else if (label === 'Re-check KYC') setRecheckOpen(true)
@@ -144,19 +145,16 @@ export function ApplicantProfile() {
     else if (label === 'Start loan application') navigate(`/loan-applications/new?applicantId=${applicant.id}`)
   }
 
-  // our own rule, the API does not say when an applicant can be deleted
-  const loanCount = LOANS.filter((l) => l.applicantId === applicant.id).length
-  const applicationCount = applications.filter((a) => a.applicantId === applicant.id).length
-  const deleteBlock =
-    loanCount > 0 || applicationCount > 0
-      ? `${applicant.name} has ${applicationCount} loan ${applicationCount === 1 ? 'application' : 'applications'} and ${loanCount} ${loanCount === 1 ? 'loan' : 'loans'} on record, so the profile cannot be deleted.`
-      : null
-
-  const removeApplicant = () => {
-    if (deleteBlock) return
-    // TODO: DELETE /api/applicants/{id}
-    setDeleteOpen(false)
-    navigate('/applicants', { replace: true })
+  const removeApplicant = async () => {
+    if (deleteApplicant.isPending) return
+    setDeleteError(null)
+    try {
+      await deleteApplicant.mutateAsync(applicant.id)
+      setDeleteOpen(false)
+      navigate('/applicants', { replace: true })
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete the applicant.')
+    }
   }
 
   const status = STATUS[applicant.status]
@@ -180,16 +178,16 @@ export function ApplicantProfile() {
       actions={
 
         <>
-        {canEdit && (          
-          <Button
-            size="xs"
-            variant="default"
-            leftSection={<AppIcon name="pen-line" />}
-            onClick={() => setEditOpen(true)}
-          >
-            Edit
-          </Button>)
-          }
+          {canEdit && (
+            <Button
+              size="xs"
+              variant="default"
+              leftSection={<AppIcon name="pen-line" />}
+              onClick={() => setEditOpen(true)}
+            >
+              Edit
+            </Button>
+          )}
 
           {stageActions(applicant).filter((x) => allowed(x.label)).map((x) => (
             <Button
@@ -201,16 +199,19 @@ export function ApplicantProfile() {
               {x.label}
             </Button>
           ))}
-          {canDelete && (          
+          {canDelete && (
             <Button
-            size="xs"
-            color="red"
-            leftSection={<AppIcon name="trash" />}
-            onClick={() => setDeleteOpen(true)}
-          >
-            Delete profile
-          </Button>)
-          }
+              size="xs"
+              color="red"
+              leftSection={<AppIcon name="trash" />}
+              onClick={() => {
+                setDeleteError(null)
+                setDeleteOpen(true)
+              }}
+            >
+              Delete profile
+            </Button>
+          )}
         </>
       }
     >
@@ -328,13 +329,16 @@ export function ApplicantProfile() {
 
       <ContractConfirmDialog
         opened={deleteOpen}
-        title={deleteBlock ? 'Cannot delete profile' : 'Delete profile'}
+        title={deleteError ? 'Could not delete profile' : 'Delete profile'}
         message={
-          deleteBlock ??
-          `Delete ${applicant.name} (${applicant.applicantNo})? Their documents and KYC records are removed with the profile. This cannot be undone.`
+          deleteError ??
+          `Delete ${applicant.name} (${applicant.applicantNo})? This action cannot be undone.`
         }
-        confirmLabel="Delete profile"
-        onClose={() => setDeleteOpen(false)}
+        confirmLabel={deleteError ? 'Try again' : 'Delete profile'}
+        onClose={() => {
+          setDeleteOpen(false)
+          setDeleteError(null)
+        }}
         onConfirm={removeApplicant}
       />
     </DashboardLayout>
