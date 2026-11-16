@@ -241,6 +241,41 @@ export function Dashboard() {
   const sideCount = [showApprovals || showKyc || showOverdueCollections, showAging].filter(Boolean).length
   const nothing = visibleStats.length === 0 && !leftVisible && !rightVisible
 
+  /*
+  Temporarily disabled date filter. To restore it, re-add the DatePickerInput, useState,
+  and AppIcon imports, this state, and the DashboardLayout `actions` prop:
+
+  const [dateRange, setDateRange] = useState<[string | null, string | null]>([
+    dayjs().subtract(6, 'month').startOf('month').format('YYYY-MM-DD'),
+    dayjs().subtract(1, 'month').endOf('month').format('YYYY-MM-DD'),
+  ])
+  actions={
+    <DatePickerInput
+      type="range"
+      value={dateRange}
+      onChange={setDateRange}
+      valueFormat="D MMM, YYYY"
+      valueFormatter={({ date }) => {
+        if (!Array.isArray(date)) return ''
+        const [start, end] = date
+        if (!start) return ''
+        const startDate = dayjs(start)
+        if (!end) return startDate.format('D MMM, YYYY')
+        const endDate = dayjs(end)
+        return startDate.year() === endDate.year()
+          ? `${startDate.format('D MMM')} – ${endDate.format('D MMM, YYYY')}`
+          : `${startDate.format('D MMM, YYYY')} – ${endDate.format('D MMM, YYYY')}`
+      }}
+      size="xs"
+      w={205}
+      leftSection={<AppIcon name="calendar-days" size={14} />}
+      leftSectionPointerEvents="none"
+      rightSection={<AppIcon name="chevron-down" size={13} />}
+      rightSectionPointerEvents="none"
+      aria-label="Dashboard date range"
+    />
+  }
+  */
   return (
     <DashboardLayout
       title="Dashboard"
@@ -290,6 +325,7 @@ export function Dashboard() {
                   {showNpl && (
                     <BucketChart
                       title="NPL Classification"
+                      subtitle="Overdue loans by risk classification"
                       buckets={nplBuckets}
                       footer={
                         <>
@@ -307,11 +343,17 @@ export function Dashboard() {
           {rightVisible && (
             <div className={leftVisible ? 'space-y-4' : `grid items-start gap-4 ${SIDE_COLS[sideCount]}`}>
               {queueTabs.length > 0 && (
-                <QueueCard title="Review queue" tabs={queueTabs} />
+                <QueueCard
+                  title="Needs your attention"
+                  subtitle="Items that may need a follow-up"
+                  notificationCount={queueTabs.reduce((total, tab) => total + tab.rows.length, 0)}
+                  tabs={queueTabs}
+                />
               )}
               {showAging && (
                 <BucketChart
                   title="Collections Aging"
+                  subtitle="Past-due balances grouped by age"
                   buckets={agingBuckets}
                   footer={
                     <>

@@ -17,7 +17,7 @@ type ContentCardProps = {
 }
 
 // soft, wide, slightly blue-gray shadow like the reference card
-const CARD_SHADOW = 'shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
+const CARD_SHADOW = 'shadow-[0_4px_16px_rgba(76,87,125,0.06)]'
 
 export function ContentCard({
   title,
@@ -36,7 +36,7 @@ export function ContentCard({
       padding={0}
       radius="md"
       shadow="none"
-      className={`bg-white ${CARD_SHADOW} ${className}`}
+      className={`border border-gray-100 bg-white ${CARD_SHADOW} ${className}`}
     >
       {hasHeader &&
         (headerColor ? (

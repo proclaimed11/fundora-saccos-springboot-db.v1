@@ -23,12 +23,13 @@ const escapeHtml = (value: string) =>
 
 type BucketChartProps = {
   title: string
+  subtitle?: string
   buckets: Bucket[]
   /** line shown under the chart, e.g. a total */
   footer?: ReactNode
 }
 
-export function BucketChart({ title, buckets, footer }: BucketChartProps) {
+export function BucketChart({ title, subtitle, buckets, footer }: BucketChartProps) {
   const option: EChartsOption = {
     animationDuration: 350,
     grid: { top: 12, right: 12, bottom: 36, left: 48 },
@@ -82,7 +83,7 @@ export function BucketChart({ title, buckets, footer }: BucketChartProps) {
   }
 
   return (
-    <ChartCard title={title} footer={footer} cardHeight={224}>
+    <ChartCard title={title} subtitle={subtitle} footer={footer} cardHeight={224}>
       {(height) => (
         <ReactECharts
           option={option}

@@ -2,11 +2,12 @@ import { AppIcon } from '../../../components/appIcon'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Text } from '@mantine/core'
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
 import { PageState } from '../../../components/pageState'
 import { CustomTable, type CustomTableColumn } from '../../../components/customTable/customTable'
+import { CustomTabs } from '../../../components/customTabs'
 import { ContractConfirmDialog } from '../../loans/contractDialogs'
 import { initials } from '../../applicants/applicantsData'
 import { useAuth } from '../../../auth/authContext'
@@ -572,18 +573,17 @@ export function UsersPage() {
           {/* row 2: table in a plain card */}
           <div className={`${CARD} p-4`}>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="max-w-full overflow-x-auto">
-                <SegmentedControl
-                  size="xs"
-                  value={tab}
-                  onChange={(v) => setTab(v as TabKey)}
-                  data={[
-                    { value: 'all', label: `All (${users.length})` },
-                    { value: 'active', label: `Active (${active.length})` },
-                    { value: 'inactive', label: `Inactive (${inactive.length})` },
-                  ]}
-                />
-              </div>
+              <CustomTabs
+                ariaLabel="User filters"
+                className="w-fit p-0"
+                value={tab}
+                onChange={(value) => setTab(value as TabKey)}
+                tabs={[
+                  { value: 'all', label: `All (${users.length})` },
+                  { value: 'active', label: `Active (${active.length})` },
+                  { value: 'inactive', label: `Inactive (${inactive.length})` },
+                ]}
+              />
               <Text size="xs" c="dimmed">
                 Passwords must have at least {minLength} characters
               </Text>

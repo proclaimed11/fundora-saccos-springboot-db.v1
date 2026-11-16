@@ -50,14 +50,14 @@ export function StatWidget({
       radius="md"
       withBorder={false}
       shadow="none"
-      className={`overflow-hidden border-0 shadow-[0_10px_30px_rgba(76,87,125,0.12)] ${
+      className={`overflow-visible border-0 shadow-[0_10px_30px_rgba(76,87,125,0.12)] ${
         onClick ? 'transition-colors hover:border-gray-300' : ''
       }`}
     >
       <Tag
         type={onClick ? 'button' : undefined}
         onClick={onClick}
-        className={`flex min-h-[76px] w-full items-center justify-between gap-3 px-3 py-2 text-left ${
+        className={`relative flex min-h-[76px] w-full items-center justify-between gap-3 overflow-visible px-3 py-2 text-left ${
           onClick
             ? 'cursor-pointer transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-300'
             : ''
@@ -65,16 +65,16 @@ export function StatWidget({
       >
         {loading ? (
           <>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 pr-12">
               <Skeleton height={10} width={90} mb={6} />
               <Skeleton height={20} width={110} mb={6} />
               <Skeleton height={10} width={140} />
             </div>
-            <Skeleton height={44} width={44} circle className="shrink-0" />
+            <Skeleton height={40} width={40} className="absolute -right-1 -top-3 rounded-lg" />
           </>
         ) : (
           <>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 pr-12">
               <div className="truncate text-[11px] font-normal leading-none text-slate-500">
                 {label}
               </div>
@@ -117,11 +117,13 @@ export function StatWidget({
               )}
             </div>
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-transparent"
-              style={{ color }}
+              className="absolute -right-1 -top-3 flex h-10 w-10 items-center justify-center rounded-lg border-2 border-white shadow-[0_4px_8px_rgba(15,23,42,0.14)]"
+              style={{
+                background: `linear-gradient(135deg, color-mix(in srgb, ${color} 45%, white), ${color})`,
+              }}
               aria-hidden="true"
             >
-              <AppIcon name={icon} size={19} strokeWidth={1.5} />
+              <AppIcon name={icon} size={19} strokeWidth={1.5} className="text-white" />
             </span>
           </>
         )}

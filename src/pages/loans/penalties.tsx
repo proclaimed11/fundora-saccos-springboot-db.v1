@@ -9,7 +9,6 @@ import {
   Menu,
   Modal,
   NumberInput,
-  SegmentedControl,
   Select,
   Text,
   Textarea,
@@ -18,6 +17,7 @@ import { AppIcon } from '../../components/appIcon'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import { ContractConfirmDialog } from './contractDialogs'
 import { CURRENT_USER } from './disbursementDialog'
@@ -643,18 +643,17 @@ export function PenaltiesPage() {
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'charged', label: `Charged (${charged.length})` },
-                  { value: 'due', label: `To be charged (${due.length})` },
-                  { value: 'grace', label: `Grace periods (${activeGrace.length} active)` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Penalty filters"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'charged', label: `Charged (${charged.length})` },
+                { value: 'due', label: `To be charged (${due.length})` },
+                { value: 'grace', label: `Grace periods (${activeGrace.length} active)` },
+              ]}
+            />
             <Text size="xs" c="dimmed">
               Penalties are charged every day at 06:30 UTC
             </Text>

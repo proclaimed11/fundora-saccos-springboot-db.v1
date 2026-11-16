@@ -58,12 +58,12 @@ export function DashboardHeader({
     <div
       className={`${
         headerStyle === 'texture' ? 'texture-header-skin' : 'botanical-header-skin'
-      } flex h-screen flex-col bg-gray-100`}
+      } flex h-screen flex-col bg-white`}
     >
       <header className="relative z-30 flex h-12 shrink-0 items-center text-slate-700">
         <div
           className={`relative flex shrink-0 items-center px-3 transition-[width] duration-200 lg:justify-start lg:px-4 ${
-            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-56'
+            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-[13.5rem]'
           }`}
         >
           <img
@@ -306,7 +306,7 @@ export function DashboardHeader({
             )}
           </div>
 
-          <div className="flex-1 bg-content-background">
+          <div className="flex-1 bg-white">
             <main className={`relative z-10 px-4 pb-4 ${overlap ? '-mt-8' : 'mt-4'}`}>
               {children}
             </main>

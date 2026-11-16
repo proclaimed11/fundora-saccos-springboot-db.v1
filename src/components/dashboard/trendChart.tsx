@@ -133,7 +133,8 @@ export function TrendChart({ data }: TrendChartProps) {
 
   return (
     <ChartCard
-      title="Disbursed vs Collected"
+      title="Portfolio Performance"
+      subtitle="Monthly amounts disbursed compared with repayments collected"
       className="lg:col-span-2"
       cardHeight={256}
       footer={

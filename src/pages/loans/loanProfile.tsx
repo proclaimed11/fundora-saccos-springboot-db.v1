@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Alert, Badge, Button, Progress, Tabs, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
+import { CustomTabs } from '../../components/customTabs'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
 import { formatTzs } from '../../utils/format'
 import { PaymentDialog, type PaymentInput } from './paymentDialog'
@@ -564,13 +565,13 @@ export function LoanProfile() {
           {/* tabs */}
           <div className={CARD}>
             <Tabs value={tab} onChange={setTab} color="brand">
-              <Tabs.List className="flex-nowrap overflow-x-auto px-3">
-                {TABS.map((t) => (
-                  <Tabs.Tab key={t.value} value={t.value} className="whitespace-nowrap">
-                    {t.label}
-                  </Tabs.Tab>
-                ))}
-              </Tabs.List>
+              <CustomTabs
+                ariaLabel="Loan profile tabs"
+                className="w-fit px-3 py-3"
+                tabs={TABS}
+                value={tab ?? 'overview'}
+                onChange={setTab}
+              />
 
               <div className="p-5">
                 <Tabs.Panel value="overview">

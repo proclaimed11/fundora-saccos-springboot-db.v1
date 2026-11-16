@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import dayjs from 'dayjs'
-import { Alert, Badge, Button, Drawer, SegmentedControl, Text } from '@mantine/core'
+import { Alert, Badge, Button, Drawer, Text } from '@mantine/core'
 import { AppIcon } from '../../components/appIcon'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import {
   INSTALLMENT_STATUS,
@@ -135,14 +136,13 @@ export function ScheduleDrawer({ opened, loans, loanId, highlight = [], onClose,
       <div className="space-y-5">
         {/* more than one loan: switch between their schedules */}
         {loans.length > 1 && (
-          <div className="max-w-full overflow-x-auto">
-            <SegmentedControl
-              size="xs"
-              value={String(loan.id)}
-              onChange={(v) => setPicked(Number(v))}
-              data={loans.map((l) => ({ value: String(l.id), label: l.loanNo }))}
-            />
-          </div>
+          <CustomTabs
+            ariaLabel="Loan schedules"
+            className="w-fit p-0"
+            value={String(loan.id)}
+            onChange={(value) => setPicked(Number(value))}
+            tabs={loans.map((l) => ({ value: String(l.id), label: l.loanNo }))}
+          />
         )}
 
         <div className="flex flex-wrap items-center gap-2">

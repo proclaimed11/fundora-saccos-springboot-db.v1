@@ -2,10 +2,11 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import { CURRENT_USER, JournalPreview } from '../loans/disbursementDialog'
 import { SAMPLE_DISBURSEMENTS, type JournalLine } from '../loans/loanApplicationsData'
@@ -589,17 +590,16 @@ export function GlTransactionsPage() {
         {/* row 3: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'transactions', label: `Transactions (${all.length})` },
-                  { value: 'trial', label: `Trial balance (${trialRows.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Accounting tabs"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'transactions', label: `Transactions (${all.length})` },
+                { value: 'trial', label: `Trial balance (${trialRows.length})` },
+              ]}
+            />
 
             {tab === 'transactions' && (typeFilter !== 'ALL' || accountFilter) && (
               <Button size="compact-xs" variant="subtle" color="gray" onClick={clearFilters}>

@@ -10,7 +10,6 @@ import {
   Menu,
   Modal,
   NumberInput,
-  SegmentedControl,
   Select,
   Text,
 } from '@mantine/core'
@@ -18,6 +17,7 @@ import { AppIcon } from '../../components/appIcon'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import { applicants } from '../applicants/applicantsData'
 import { PaymentDialog, type PaymentInput } from './paymentDialog'
@@ -672,18 +672,17 @@ export function PaymentsPage() {
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'all', label: `All (${rows.length})` },
-                  { value: 'today', label: `Today (${todayRows.length})` },
-                  { value: 'month', label: `This month (${monthRows.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Payment filters"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'all', label: `All (${rows.length})` },
+                { value: 'today', label: `Today (${todayRows.length})` },
+                { value: 'month', label: `This month (${monthRows.length})` },
+              ]}
+            />
             <Text size="xs" c="dimmed">
               Total shown {formatTzs(sum(tabData[tab]))}
             </Text>

@@ -2,10 +2,11 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { DocumentViewer, type ViewableDocument } from '../../components/documentViewer'
 import { formatTzs } from '../../utils/format'
 import { CURRENT_USER } from './disbursementDialog'
@@ -790,17 +791,16 @@ export function SecuritiesPage() {
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'assets', label: `Collateral (${assets.length})` },
-                  { value: 'guarantors', label: `Guarantors (${guarantors.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Collateral tabs"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'assets', label: `Collateral (${assets.length})` },
+                { value: 'guarantors', label: `Guarantors (${guarantors.length})` },
+              ]}
+            />
             <Text size="xs" c="dimmed">
               {tab === 'assets'
                 ? 'Release an asset once its loan is repaid'

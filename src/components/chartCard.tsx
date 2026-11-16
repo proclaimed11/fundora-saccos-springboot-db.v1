@@ -1,6 +1,6 @@
 import { AppIcon } from './appIcon'
 import { useState, type ReactNode } from 'react'
-import { ActionIcon, Button, Menu, Modal } from '@mantine/core'
+import { ActionIcon, Button, Menu, Modal, Text } from '@mantine/core'
 import { ContentCard } from './contentCard'
 import { DateRangeFilter } from './dashboard/dateRangeFilter'
 
@@ -10,11 +10,9 @@ const DOWNLOADS = [
   { label: 'Image', icon: 'file-image' },
 ]
 
-// dark text/icons for the card header
-const HEADER_TEXT = '#1f2937' // gray-800
-
 type ChartCardProps = {
   title: string
+  subtitle?: string
   className?: string
   /** chart body; receives the height to draw at (small in the card, large in the modal) */
   children: (height: number) => ReactNode
@@ -26,6 +24,7 @@ type ChartCardProps = {
 
 export function ChartCard({
   title,
+  subtitle,
   className,
   children,
   footer,
@@ -33,59 +32,50 @@ export function ChartCard({
 }: ChartCardProps) {
   const [open, setOpen] = useState(false)
 
-  // dark icons with a subtle dark hover
-  const iconBtn = 'text-gray-800 hover:bg-black/10'
-
   const actions = (
-    <div className="flex items-center gap-1">
-      <Menu position="bottom-end" shadow="md" width={170}>
-        <Menu.Target>
-          <ActionIcon
-            variant="transparent"
-            size="sm"
-            className={iconBtn}
-            aria-label={`Download ${title}`}
-          >
-            <AppIcon name="download" />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          <Menu.Label>Download as</Menu.Label>
-          {DOWNLOADS.map((d) => (
-            <Menu.Item key={d.label} leftSection={<AppIcon name={d.icon} />}>
-              {d.label}
-            </Menu.Item>
-          ))}
-        </Menu.Dropdown>
-      </Menu>
-
-      <ActionIcon
-        variant="transparent"
-        size="sm"
-        className={iconBtn}
-        aria-label={`View ${title} larger`}
-        onClick={() => setOpen(true)}
-      >
-        <AppIcon name="maximize" />
-      </ActionIcon>
-    </div>
+    <Menu position="bottom-end" shadow="md" width={190}>
+      <Menu.Target>
+        <ActionIcon size="sm" variant="subtle" color="gray" aria-label={`${title} chart options`}>
+          <AppIcon name="ellipsis-vertical" />
+        </ActionIcon>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Item leftSection={<AppIcon name="maximize" />} onClick={() => setOpen(true)}>
+          Preview graph
+        </Menu.Item>
+        <Menu.Divider />
+        <Menu.Label>Download as</Menu.Label>
+        {DOWNLOADS.map((d) => (
+          <Menu.Item key={d.label} leftSection={<AppIcon name={d.icon} />}>
+            {d.label}
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
   )
 
   return (
     <>
-      <ContentCard
-        title={title}
-        headerColor="#fcfdfc"
-        headerTextColor={HEADER_TEXT}
-        action={actions}
-        className={className}
-      >
-        {children(cardHeight)}
-        {footer && (
-          <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
-            {footer}
+      <ContentCard className={className} flush>
+        <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-4 pb-3 pt-3">
+          <div className="min-w-0">
+            <Text size="sm" fw={600}>{title}</Text>
+            {subtitle && (
+              <Text size="xs" c="dimmed" mt={3}>
+                {subtitle}
+              </Text>
+            )}
           </div>
-        )}
+          {actions}
+        </div>
+        <div className="p-4">
+          {children(cardHeight)}
+          {footer && (
+            <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-3">
+              {footer}
+            </div>
+          )}
+        </div>
       </ContentCard>
 
       <Modal opened={open} onClose={() => setOpen(false)} title={title} size={960} centered>

@@ -2,10 +2,11 @@ import { AppIcon } from '../../../components/appIcon'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, SegmentedControl, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Text } from '@mantine/core'
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../../components/customTable/customTable'
+import { CustomTabs } from '../../../components/customTabs'
 import { PageState } from '../../../components/pageState'
 import { useAuditLogs, useAuditSummary } from '../../../api/audit'
 import { toUser, useApiUsers } from '../../../api/users'
@@ -328,18 +329,17 @@ export function AuditPage() {
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'all', label: `All (${rows.length})` },
-                  { value: 'today', label: `Today (${today.length})` },
-                  { value: 'week', label: `Last 7 days (${week.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Audit filters"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'all', label: `All (${rows.length})` },
+                { value: 'today', label: `Today (${today.length})` },
+                { value: 'week', label: `Last 7 days (${week.length})` },
+              ]}
+            />
             <Text size="xs" c="dimmed">
               Entries are read-only and cannot be removed
             </Text>

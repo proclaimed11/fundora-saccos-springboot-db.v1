@@ -35,7 +35,11 @@ export function LoansByStatus({ data }: LoansByStatusProps) {
   })
 
   return (
-    <ChartCard title="Loans by Status" cardHeight={224}>
+    <ChartCard
+      title="Loans by Status"
+      subtitle="Portfolio distribution by loan status"
+      cardHeight={224}
+    >
       {(height) => {
         // donut grows with the available height (bigger in the modal)
         const size = Math.round(height * 0.7)

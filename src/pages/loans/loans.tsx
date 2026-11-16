@@ -2,10 +2,11 @@ import { AppIcon } from '../../components/appIcon'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Badge, Menu, Progress, SegmentedControl, Text } from '@mantine/core'
+import { ActionIcon, Badge, Menu, Progress, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { PageState } from '../../components/pageState'
 import { formatTzs } from '../../utils/format'
 import { usePageAccess } from '../auth/usePageAccess'
@@ -272,21 +273,20 @@ export function LoansPage() {
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'active', label: `Active (${active.length})` },
-                  { value: 'overdue', label: `Overdue (${overdue.length})` },
-                  { value: 'npl', label: `Non-performing (${npl.length})` },
-                  { value: 'closed', label: `Closed (${closed.length})` },
-                  { value: 'written', label: `Written off (${written.length})` },
-                  { value: 'all', label: `All (${rows.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="Loan filters"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'active', label: `Active (${active.length})` },
+                { value: 'overdue', label: `Overdue (${overdue.length})` },
+                { value: 'npl', label: `Non-performing (${npl.length})` },
+                { value: 'closed', label: `Closed (${closed.length})` },
+                { value: 'written', label: `Written off (${written.length})` },
+                { value: 'all', label: `All (${rows.length})` },
+              ]}
+            />
             <Text size="xs" c="dimmed">
               Outstanding {formatTzs(outstanding)} · Past due {formatTzs(overdue.reduce((s, r) => s + r.overdueAmount, 0))}
             </Text>

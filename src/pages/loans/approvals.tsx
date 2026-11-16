@@ -2,10 +2,11 @@ import { AppIcon } from '../../components/appIcon'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Modal, SegmentedControl, Text, Textarea } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Modal, Text, Textarea } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import {
   RANK,
@@ -665,19 +666,18 @@ export function ApprovalsPage() {
 
         {/* row 2: table in a plain card */}
         <div className={`${CARD} p-4`}>
-          <div className="mb-3 max-w-full overflow-x-auto">
-            <SegmentedControl
-              size="xs"
-              value={tab}
-              onChange={(v) => setTab(v as TabKey)}
-              data={[
-                { value: 'awaiting', label: `Awaiting decision (${awaiting.length})` },
-                { value: 'mine', label: `Needs my decision (${mine.length})` },
-                { value: 'decided', label: `Decided (${decided.length})` },
-                { value: 'all', label: `All (${queue.length})` },
-              ]}
-            />
-          </div>
+          <CustomTabs
+            ariaLabel="Approval filters"
+            className="mb-3 w-fit p-0"
+            value={tab}
+            onChange={(value) => setTab(value as TabKey)}
+            tabs={[
+              { value: 'awaiting', label: `Awaiting decision (${awaiting.length})` },
+              { value: 'mine', label: `Needs my decision (${mine.length})` },
+              { value: 'decided', label: `Decided (${decided.length})` },
+              { value: 'all', label: `All (${queue.length})` },
+            ]}
+          />
 
           <CustomTable<Row>
             size="md"

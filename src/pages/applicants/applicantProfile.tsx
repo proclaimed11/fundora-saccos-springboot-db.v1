@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { Alert, Badge, Button, Tabs, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
+import { CustomTabs } from '../../components/customTabs'
 import { STATUS, initials, stageActions } from './applicantsData'
 import { ApiError } from '../../api/client'
 import { ErrorState, LoadingState } from '../../components/pageState'
@@ -37,6 +38,7 @@ const TABS = [
 export function ApplicantProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [tab, setTab] = useState<string | null>('overview')
   const [reviewOpen, setReviewOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -259,14 +261,14 @@ export function ApplicantProfile() {
 
         {/* tabs */}
         <div className={CARD}>
-          <Tabs defaultValue="overview" color="brand">
-            <Tabs.List className="flex-nowrap overflow-x-auto px-3">
-              {TABS.map((t) => (
-                <Tabs.Tab key={t.value} value={t.value} className="whitespace-nowrap">
-                  {t.label}
-                </Tabs.Tab>
-              ))}
-            </Tabs.List>
+          <Tabs value={tab} onChange={setTab} color="brand">
+            <CustomTabs
+              ariaLabel="Applicant profile tabs"
+              className="w-fit px-3 py-3"
+              tabs={TABS}
+              value={tab ?? 'overview'}
+              onChange={setTab}
+            />
 
             <div className="p-5">
               <Tabs.Panel value="overview">

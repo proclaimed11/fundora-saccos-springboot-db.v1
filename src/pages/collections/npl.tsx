@@ -2,10 +2,11 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Popover, SegmentedControl, Switch, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Popover, Switch, Text } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
+import { CustomTabs } from '../../components/customTabs'
 import { formatTzs } from '../../utils/format'
 import { JournalPreview } from '../loans/disbursementDialog'
 import { NPL_STYLE, type JournalLine, type LoanView, type NplClass } from '../loans/loanApplicationsData'
@@ -644,17 +645,16 @@ export function NplPage() {
         {/* row 3: table in a plain card */}
         <div className={`${CARD} p-4`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div className="max-w-full overflow-x-auto">
-              <SegmentedControl
-                size="xs"
-                value={tab}
-                onChange={(v) => setTab(v as TabKey)}
-                data={[
-                  { value: 'loans', label: `Loans at risk (${overdueRows.length})` },
-                  { value: 'written', label: `Written off (${written.length})` },
-                ]}
-              />
-            </div>
+            <CustomTabs
+              ariaLabel="NPL tabs"
+              className="w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'loans', label: `Loans at risk (${overdueRows.length})` },
+                { value: 'written', label: `Written off (${written.length})` },
+              ]}
+            />
 
             {tab === 'loans' ? (
               <div className="flex flex-wrap items-center gap-3">

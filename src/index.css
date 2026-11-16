@@ -42,7 +42,7 @@ html {
   position: relative;
   isolation: isolate;
   --botanical-accent: var(--app-brand);
-  --botanical-light: color-mix(in srgb, var(--botanical-accent) 8%, white);
+  --botanical-light: color-mix(in srgb, var(--botanical-accent) 4%, white);
 }
 
 .botanical-header-skin::before {
@@ -133,7 +133,7 @@ html {
 /* shared by the real header and the preview tile in Theme Settings */
 .texture-header-skin::before,
 .texture-pattern {
-  background-color: #f9f9f8;
+  background-color: #ffffff;
   background-repeat: no-repeat;
   background-size: 100% 100%;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011 0.005' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.6 0 0 0 -0.8'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
