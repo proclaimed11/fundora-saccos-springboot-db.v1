@@ -42,7 +42,7 @@ html {
   position: relative;
   isolation: isolate;
   --botanical-accent: var(--app-brand);
-  --botanical-light: color-mix(in srgb, var(--botanical-accent) 4%, white);
+  --botanical-light: color-mix(in srgb, var(--botanical-accent) 16%, white);
 }
 
 .botanical-header-skin::before {
@@ -63,7 +63,16 @@ html {
     radial-gradient(circle at center, transparent 0 5px, var(--botanical-light) 5.5px 6.5px, transparent 7px),
     radial-gradient(circle at center, transparent 0 5px, var(--botanical-light) 5.5px 6.5px, transparent 7px),
     radial-gradient(circle, var(--botanical-light) 1.2px, transparent 1.8px),
-    radial-gradient(circle, var(--botanical-light) 1px, transparent 1.6px);
+    radial-gradient(circle, var(--botanical-light) 1px, transparent 1.6px),
+    radial-gradient(ellipse 17px 6px at center, var(--botanical-light) 0 58%, transparent 68%),
+    radial-gradient(ellipse 13px 5px at center, var(--botanical-light) 0 58%, transparent 68%),
+    radial-gradient(ellipse 17px 6px at center, var(--botanical-light) 0 58%, transparent 68%),
+    radial-gradient(ellipse 13px 5px at center, var(--botanical-light) 0 58%, transparent 68%),
+    radial-gradient(ellipse 20px 42px at 50% 100%, var(--botanical-light) 0 62%, transparent 65%),
+    radial-gradient(circle at center, transparent 0 3px, var(--botanical-light) 3.5px 4.5px, transparent 5px),
+    radial-gradient(circle at center, transparent 0 3px, var(--botanical-light) 3.5px 4.5px, transparent 5px),
+    radial-gradient(circle at center, transparent 0 3px, var(--botanical-light) 3.5px 4.5px, transparent 5px),
+    radial-gradient(circle at center, transparent 0 3px, var(--botanical-light) 3.5px 4.5px, transparent 5px);
   background-size:
     270px 74px,
     250px 66px,
@@ -74,7 +83,16 @@ html {
     30px 30px,
     30px 30px,
     40px 34px,
-    34px 29px;
+    34px 29px,
+    40px 20px,
+    32px 18px,
+    40px 20px,
+    32px 18px,
+    44px 60px,
+    12px 12px,
+    12px 12px,
+    12px 12px,
+    12px 12px;
   background-position:
     left 14rem bottom,
     left calc(14rem + 65px) bottom,
@@ -85,7 +103,16 @@ html {
     8% 65%,
     92% 65%,
     7% 68%,
-    92% 72%;
+    92% 72%,
+    left calc(14rem + 20px) bottom 25px,
+    left calc(14rem + 62px) bottom 43px,
+    right calc(14rem + 20px) bottom 25px,
+    right calc(14rem + 62px) bottom 43px,
+    82.3% bottom,
+    40% 52%,
+    45% 64%,
+    55% 64%,
+    60% 52%;
   background-repeat: no-repeat;
 }
 
@@ -102,15 +129,51 @@ html {
     repeating-linear-gradient(138deg, transparent 0 8px, var(--botanical-light) 8.5px 9px, transparent 9.5px 15px),
     repeating-linear-gradient(42deg, transparent 0 8px, var(--botanical-light) 8.5px 9px, transparent 9.5px 15px),
     radial-gradient(circle, var(--botanical-light) 1.4px, transparent 1.9px),
-    radial-gradient(circle, var(--botanical-light) 1.2px, transparent 1.7px);
-  background-size: 280px 124px, 280px 124px, 58px 38px, 58px 38px, 34px 30px, 30px 28px;
+    radial-gradient(circle, var(--botanical-light) 1.2px, transparent 1.7px),
+    conic-gradient(from 22.5deg at 50% 50%, transparent 0deg 15deg, var(--botanical-light) 15deg 40deg, transparent 40deg 60deg, var(--botanical-light) 60deg 85deg, transparent 85deg 105deg, var(--botanical-light) 105deg 130deg, transparent 130deg 150deg, var(--botanical-light) 150deg 175deg, transparent 175deg 195deg, var(--botanical-light) 195deg 220deg, transparent 220deg 240deg, var(--botanical-light) 240deg 265deg, transparent 265deg 285deg, var(--botanical-light) 285deg 310deg, transparent 310deg 330deg, var(--botanical-light) 330deg 355deg, transparent 355deg),
+    conic-gradient(from 22.5deg at 50% 50%, transparent 0deg 15deg, var(--botanical-light) 15deg 40deg, transparent 40deg 60deg, var(--botanical-light) 60deg 85deg, transparent 85deg 105deg, var(--botanical-light) 105deg 130deg, transparent 130deg 150deg, var(--botanical-light) 150deg 175deg, transparent 175deg 195deg, var(--botanical-light) 195deg 220deg, transparent 220deg 240deg, var(--botanical-light) 240deg 265deg, transparent 265deg 285deg, var(--botanical-light) 285deg 310deg, transparent 310deg 330deg, var(--botanical-light) 330deg 355deg, transparent 355deg),
+    linear-gradient(135deg, transparent 48%, var(--botanical-light) 49% 51%, transparent 52%),
+    linear-gradient(45deg, transparent 48%, var(--botanical-light) 49% 51%, transparent 52%),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px),
+    radial-gradient(circle, var(--botanical-light) 2px, transparent 2.7px);
+  background-size:
+    280px 124px,
+    280px 124px,
+    58px 38px,
+    58px 38px,
+    34px 30px,
+    30px 28px,
+    30px 30px,
+    30px 30px,
+    54px 40px,
+    54px 40px,
+    7px 7px,
+    7px 7px,
+    7px 7px,
+    7px 7px,
+    7px 7px,
+    7px 7px;
   background-position:
     left bottom,
     right bottom,
     left 34px bottom 12px,
     right 34px bottom 12px,
     left 17% bottom 27px,
-    right 17% bottom 27px;
+    right 17% bottom 27px,
+    left 10% bottom 28px,
+    right 10% bottom 28px,
+    left 16px bottom 14px,
+    right 16px bottom 14px,
+    left 26px bottom 38px,
+    left 47px bottom 24px,
+    left 65px bottom 48px,
+    right 26px bottom 38px,
+    right 47px bottom 24px,
+    right 65px bottom 48px;
   background-repeat: no-repeat;
   mask-image:
     radial-gradient(ellipse 225px 124px at 0% 100%, #000 0 52%, transparent 78%),
@@ -161,7 +224,20 @@ html {
       left 12px bottom,
       right bottom,
       right 65px bottom,
-      right 12px bottom;
+      right 12px bottom,
+      8% 65%,
+      92% 65%,
+      7% 68%,
+      92% 72%,
+      left 18px bottom 25px,
+      left 58px bottom 43px,
+      right 18px bottom 25px,
+      right 58px bottom 43px,
+      82% bottom,
+      40% 52%,
+      45% 64%,
+      55% 64%,
+      60% 52%;
   }
 }
 
