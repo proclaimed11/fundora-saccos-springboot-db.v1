@@ -310,9 +310,9 @@ export function NewApplicantPage() {
           }}
           mb="xl"
         >
-          <Stepper.Step label="Personal" {...stepIcon('user-round')} />
-          <Stepper.Step label="Address" {...stepIcon('map-pin')} />
-          <Stepper.Step label="Identity" {...stepIcon('file-user')} />
+          <Stepper.Step label="Personal Details" {...stepIcon('user-round')} />
+          <Stepper.Step label="Address Details" {...stepIcon('map-pin')} />
+          <Stepper.Step label="Identity verification" {...stepIcon('file-user')} />
           <Stepper.Step label="Verify" {...stepIcon('shield')} />
         </Stepper>
 

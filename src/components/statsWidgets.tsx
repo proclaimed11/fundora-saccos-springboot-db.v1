@@ -29,9 +29,36 @@ type StatWidgetProps = {
 
 const formatChange = (change: number) => `${Math.abs(change).toFixed(1)}%`
 
+// the number is shortened only when the full text is too long for the card
+const MAX_FULL = 9
+
+const UNITS = [
+  { value: 1e12, label: 'T' },
+  { value: 1e9, label: 'B' },
+  { value: 1e6, label: 'M' },
+  { value: 1e3, label: 'K' },
+]
+
+// "10,000,000" -> "10M", "1,250,000,000" -> "1.25B", short values are left as they are
+// "10,000,000" -> { num: "10", unit: "M" }, short values keep an empty unit
+function shorten(text: string): { num: string; unit: string } {
+  if (text.length <= MAX_FULL) return { num: text, unit: '' }
+
+  const n = Number(text.replace(/,/g, ''))
+  if (!Number.isFinite(n)) return { num: text, unit: '' }
+
+  const abs = Math.abs(n)
+  const unit = UNITS.find((u) => abs >= u.value)
+  if (!unit) return { num: text, unit: '' }
+
+  // up to 2 decimals, trailing zeros removed: 100.00 -> 100, 1.50 -> 1.5
+  const scaled = (n / unit.value).toFixed(2).replace(/\.?0+$/, '')
+  return { num: scaled, unit: unit.label }
+}
+
 // long currency values shrink instead of being cut off
 const sizeFor = (text: string) =>
-  text.length > 16 ? 'text-[20px]' : text.length > 12 ? 'text-[24px]' : text.length > 8 ? 'text-[28px]' : 'text-[34px]'
+  text.length > 16 ? 'text-[14px]' : text.length > 12 ? 'text-[16px]' : text.length > 8 ? 'text-[19px]' : 'text-[22px]'
 
 export function StatWidget({
   value,
@@ -54,7 +81,9 @@ export function StatWidget({
   const hasTzsPrefix = typeof value === 'string' && value.startsWith('TZS ')
   // "TZS 3,000,000" -> prefix "TZS" and number "3,000,000"
   const prefix = hasTzsPrefix ? (miniLabel === undefined ? 'TZS' : miniLabel) : null
-  const shown = hasTzsPrefix ? text.slice(4) : text
+  const full = hasTzsPrefix ? text.slice(4) : text
+  const { num, unit } = shorten(full)
+  const shown = num + unit
   const suffix = !hasTzsPrefix && miniLabel ? miniLabel : null
 
   const hasChange = change !== undefined
@@ -73,10 +102,10 @@ export function StatWidget({
         onClick ? 'hover:border-slate-300 hover:shadow-[0_6px_18px_rgba(15,23,42,0.08)]' : ''
       }`}
     >
-      <Tag
+           <Tag
         type={onClick ? 'button' : undefined}
         onClick={onClick}
-        className={`flex w-full items-center gap-4 p-4 text-left ${
+        className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${
           onClick
             ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300'
             : ''
@@ -84,11 +113,11 @@ export function StatWidget({
       >
         {loading ? (
           <>
-            <Skeleton height={56} width={56} circle />
-            <div className="flex-1 space-y-2">
-              <Skeleton height={10} width={100} />
-              <Skeleton height={28} width={90} />
-              <Skeleton height={10} width={120} />
+            <Skeleton height={40} width={40} circle />
+            <div className="flex-1 space-y-1.5">
+              <Skeleton height={8} width={90} />
+              <Skeleton height={18} width={80} />
+              <Skeleton height={8} width={100} />
             </div>
           </>
         ) : (
@@ -96,28 +125,33 @@ export function StatWidget({
             {/* solid circle with a white icon */}
             <span
               aria-hidden="true"
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
               style={{ backgroundColor: color }}
             >
-              <AppIcon name={icon} size={24} strokeWidth={1.75} />
+              <AppIcon name={icon} size={18} strokeWidth={1.75} />
             </span>
 
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-slate-500">{label}</div>
+              <div className="truncate text-[12px] text-slate-500">{label}</div>
 
               <div
                 title={text}
-                className={`mt-0.5 flex items-baseline gap-1.5 truncate font-extrabold leading-tight tracking-tight text-slate-800 tabular-nums ${sizeFor(shown)}`}
+                className={`flex items-baseline gap-1 truncate font-bold leading-tight tracking-tight text-slate-800 tabular-nums ${sizeFor(shown)}`}
                 style={valueColor ? { color: valueColor } : undefined}
               >
-                {prefix && <span className="text-[12px] font-semibold tracking-wide text-slate-400">{prefix}</span>}
-                <span className="truncate">{shown}</span>
-                {suffix && <span className="text-[12px] font-medium text-slate-400">{suffix}</span>}
+                {prefix && <span className="text-[10px] font-semibold tracking-wide text-slate-400">{prefix}</span>}
+                <span className="truncate">
+                  {num}
+                  {unit && (
+                    <span style={{ color: 'color-mix(in srgb, var(--app-brand) 55%, transparent)' }}>{unit}</span>
+                  )}
+                </span>
+                {suffix && <span className="text-[10px] font-medium text-slate-400">{suffix}</span>}
               </div>
 
               {progress !== undefined && (
                 <div
-                  className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"
+                  className="mt-1 h-1 overflow-hidden rounded-full bg-slate-100"
                   role="progressbar"
                   aria-valuemin={0}
                   aria-valuemax={100}
@@ -132,20 +166,20 @@ export function StatWidget({
               )}
 
               {hasChange ? (
-                <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] leading-tight">
+                <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] leading-tight">
                   <span className="truncate text-slate-500">{changeLabel}:</span>
                   <span className={`inline-flex shrink-0 items-center gap-0.5 font-medium ${changeColor}`}>
                     {flat ? (
                       <span aria-hidden="true">–</span>
                     ) : (
-                      <AppIcon name={up ? 'chevron-up' : 'chevron-down'} size={14} strokeWidth={2.5} />
+                      <AppIcon name={up ? 'chevron-up' : 'chevron-down'} size={12} strokeWidth={2.5} />
                     )}
                     {formatChange(change)}
                     <span className="sr-only">{flat ? 'no change' : up ? 'increase' : 'decrease'}</span>
                   </span>
                 </div>
               ) : (
-                hint && <div className="mt-1 truncate text-[13px] text-slate-400">{hint}</div>
+                hint && <div className="mt-0.5 truncate text-[11px] text-slate-400">{hint}</div>
               )}
             </div>
           </>
