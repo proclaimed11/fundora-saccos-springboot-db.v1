@@ -1,4 +1,4 @@
-import { AppIcon } from '../../components/appIcon'
+import { AppIcon, stepIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { ActionIcon, Alert, Badge, Button, Stepper, Text } from '@mantine/core'
 import dayjs from 'dayjs'
@@ -139,10 +139,11 @@ export function OverviewTab({ applicant }: { applicant: Applicant }) {
         active={STATUS[applicant.status].step}
         size="xs"
         color={applicant.status === 'REJECTED' ? 'red' : 'brand'}
+        className={`app-stepper${applicant.status === 'REJECTED' ? ' app-stepper-danger' : ''}`}
       >
-        <Stepper.Step label="Registered" description={reachedOn('PENDING_OTP')} />
-        <Stepper.Step label="OTP verified" description={reachedOn('PENDING_KYC')} />
-        <Stepper.Step label="KYC approved" description={reachedOn('KYC_APPROVED')} />
+        <Stepper.Step label="Registered" description={reachedOn('PENDING_OTP')} {...stepIcon('user-round-plus')} />
+        <Stepper.Step label="OTP verified" description={reachedOn('PENDING_KYC')} {...stepIcon('key-round')} />
+        <Stepper.Step label="KYC approved" description={reachedOn('KYC_APPROVED')} {...stepIcon('shield')} />
       </Stepper>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

@@ -191,8 +191,8 @@ export const STEPPER_ICON_SIZE = 28
 
 // the icon inside a stepper node; the same icon is shown once the step is done
 export const stepIcon = (name: string) => ({
-  icon: <AppIcon name={name} size={16} strokeWidth={1.75} />,
-  completedIcon: <AppIcon name={name} size={16} strokeWidth={1.75} />,
+  icon: <AppIcon name={name} size={14} strokeWidth={1.75} />,
+  completedIcon: <AppIcon name={name} size={14} strokeWidth={1.75} />,
 })
 
 export const THEMED_STEPPER_STYLES = {

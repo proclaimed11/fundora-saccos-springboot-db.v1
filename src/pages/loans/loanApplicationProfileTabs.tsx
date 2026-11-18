@@ -1,4 +1,4 @@
-import { AppIcon } from '../../components/appIcon'
+import { AppIcon, stepIcon  } from '../../components/appIcon'
 import { useState } from 'react'
 import { DocumentViewer, type ViewableDocument } from '../../components/documentViewer'
 import { defaultContent, printContract, valuesFor } from './contractTemplate'
@@ -112,12 +112,13 @@ export function OverviewTab({ application }: { application: LoanApplication }) {
         active={STATUS[application.status].step}
         size="xs"
         color={application.status === 'REJECTED' ? 'red' : 'brand'}
+        className={`app-stepper${application.status === 'REJECTED' ? ' app-stepper-danger' : ''}`}
       >
-        <Stepper.Step label="Submitted" />
-        <Stepper.Step label="Credit" />
-        <Stepper.Step label="Approval" />
-        <Stepper.Step label="Contract" />
-        <Stepper.Step label="Loan" />
+        <Stepper.Step label="Submitted" {...stepIcon('file-text')} />
+        <Stepper.Step label="Credit" {...stepIcon('calculator')} />
+        <Stepper.Step label="Approval" {...stepIcon('square-check')} />
+        <Stepper.Step label="Contract" {...stepIcon('pen-line')} />
+        <Stepper.Step label="Loan" {...stepIcon('banknote')} />
       </Stepper>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

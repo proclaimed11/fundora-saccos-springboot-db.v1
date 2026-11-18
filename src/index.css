@@ -402,7 +402,7 @@ html {
 /* ---------- stepper: round nodes joined by a line (use className="app-stepper") ---------- */
 
 .app-stepper {
-  --node: 34px;
+  --node: 30px;
 }
 
 .app-stepper .mantine-Stepper-steps {
@@ -412,13 +412,13 @@ html {
 .app-stepper .mantine-Stepper-step {
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  min-width: 84px;
+  gap: 6px;
+  min-width: 76px;
   padding: 0;
 }
 
 .app-stepper .mantine-Stepper-stepWrapper {
-  padding: 4px; /* room for the ring around the active node */
+  padding: 3px; /* room for the ring around the active node */
 }
 
 .app-stepper .mantine-Stepper-stepBody {
@@ -428,7 +428,7 @@ html {
 
 .app-stepper .mantine-Stepper-stepLabel {
   color: #6b7280;
-  font-size: 0.93rem;
+  font-size: 0.8rem;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -472,10 +472,22 @@ html {
 /* the line runs through the middle of the nodes, not of node + label */
 .app-stepper .mantine-Stepper-separator {
   height: 2px;
-  margin: calc(var(--node) / 2 + 3px) 0 0;
+  margin: calc(var(--node) / 2 + 2px) 0 0;
   background: #d1d5db;
 }
 
 .app-stepper .mantine-Stepper-separator[data-active] {
   background: var(--app-brand);
+}
+
+/* rejected applicants: same design in red */
+.app-stepper-danger {
+  --app-brand: #e03131;
+}
+
+/* the date shown under a step label */
+.app-stepper .mantine-Stepper-stepDescription {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: #9ca3af;
 }

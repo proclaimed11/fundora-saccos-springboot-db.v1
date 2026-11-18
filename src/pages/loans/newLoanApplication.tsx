@@ -903,15 +903,16 @@ export function NewLoanApplicationPage() {
           active={submitted ? steps.length : active}
           size="xs"
           color="brand"
+          className="app-stepper"
           allowNextStepsSelect={false}
           onStepClick={(i) => {
             if (!submitted && i < active) setActive(i)
           }}
           mb="xl"
         >
-        {steps.map((s) => (
-          <Stepper.Step key={s} label={STEP_LABEL[s]} {...stepIcon(STEP_ICON[s])} />
-        ))}
+          {steps.map((s) => (
+            <Stepper.Step key={s} label={STEP_LABEL[s]} {...stepIcon(STEP_ICON[s])} />
+          ))}
         </Stepper>
 
         {notice && !submitted && (

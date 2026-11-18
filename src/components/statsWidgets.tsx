@@ -6,7 +6,7 @@ type StatWidgetProps = {
   label: string
   /** Lucide icon name, e.g. 'users' */
   icon: string
-  /** icon color, any CSS color */
+  /** accent color of the icon tile, any CSS color */
   color: string
   /** optional override for the value color, defaults to the normal dark text */
   valueColor?: string
@@ -21,9 +21,7 @@ type StatWidgetProps = {
   loading?: boolean
 }
 
-function formatChange(change: number) {
-  return `${Math.abs(change).toFixed(2)}%`
-}
+const formatChange = (change: number) => `${Math.abs(change).toFixed(2)}%`
 
 export function StatWidget({
   value,
@@ -41,90 +39,83 @@ export function StatWidget({
   const hasTzsPrefix = typeof value === 'string' && value.startsWith('TZS ')
   const hasCustomCurrencyLabel = hasTzsPrefix && miniLabel !== undefined
   const displayUnit = miniLabel && !hasTzsPrefix ? miniLabel : null
-  const isUp = change !== undefined && change >= 0
   const showChange = change !== undefined
+  const isUp = change !== undefined && change >= 0
 
   return (
     <Card
       padding={0}
-      radius="md"
+      radius="lg"
       withBorder={false}
       shadow="none"
-      className={`overflow-visible border-0 shadow-[0_10px_30px_rgba(76,87,125,0.12)] ${
-        onClick ? 'transition-colors hover:border-gray-300' : ''
+      className={`border border-slate-100 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_rgba(76,87,125,0.08)] transition duration-200 ${
+        onClick ? 'hover:-translate-y-0.5 hover:shadow-[0_2px_4px_rgba(16,24,40,0.05),0_14px_32px_rgba(76,87,125,0.14)]' : ''
       }`}
     >
       <Tag
         type={onClick ? 'button' : undefined}
         onClick={onClick}
-        className={`relative flex min-h-[76px] w-full items-center justify-between gap-3 overflow-visible px-3 py-2 text-left ${
-          onClick
-            ? 'cursor-pointer transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-300'
-            : ''
+        className={`flex w-full flex-col gap-3 p-4 text-left ${
+          onClick ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-300' : ''
         }`}
       >
         {loading ? (
           <>
-            <div className="min-w-0 flex-1 pr-12">
-              <Skeleton height={10} width={90} mb={6} />
-              <Skeleton height={20} width={110} mb={6} />
-              <Skeleton height={10} width={140} />
+            <div className="flex items-center justify-between">
+              <Skeleton height={10} width={90} />
+              <Skeleton height={36} width={36} radius="md" />
             </div>
-            <Skeleton height={40} width={40} className="absolute -right-1 -top-3 rounded-lg" />
+            <Skeleton height={22} width={130} />
+            <Skeleton height={14} width={150} />
           </>
         ) : (
           <>
-            <div className="min-w-0 flex-1 pr-12">
-              <div className="truncate text-[11px] font-normal leading-none text-slate-500">
-                {label}
-              </div>
-              <div
-                className="my-1 truncate text-[18px] font-medium leading-tight tracking-tight text-slate-800"
-                style={valueColor ? { color: valueColor } : undefined}
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate text-[12.5px] font-medium text-slate-500">{label}</span>
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                style={{
+                  color,
+                  background: `color-mix(in srgb, ${color} 12%, white)`,
+                }}
               >
-                {hasCustomCurrencyLabel ? (
-                  <>
-                    {miniLabel && (
-                      <span className="mr-1 text-sm font-semibold text-slate-900">
-                        {miniLabel}
-                      </span>
-                    )}
-                    {value.slice(4)}
-                  </>
-                ) : (
-                  value
-                )}
-                {displayUnit && (
-                  <span className="ml-1 text-sm font-semibold text-slate-900">
-                    {displayUnit}
-                  </span>
-                )}
-              </div>
-              {showChange && (
-                <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[10px] leading-tight">
-                  <span
-                    className={`inline-flex items-center gap-1 font-semibold ${
-                      isUp ? 'text-emerald-500' : 'text-red-500'
-                    }`}
-                  >
-                    <span aria-hidden="true" className="text-[9px]">
-                      {isUp ? '▲' : '▼'}
-                    </span>
-                    {formatChange(change)}
-                  </span>
-                  <span className="min-w-0 text-slate-400">{changeLabel}</span>
-                </div>
+                <AppIcon name={icon} size={18} strokeWidth={1.75} />
+              </span>
+            </div>
+
+            <div
+              className="truncate text-[24px] font-semibold leading-none tracking-tight text-slate-900 tabular-nums"
+              style={valueColor ? { color: valueColor } : undefined}
+            >
+              {hasCustomCurrencyLabel ? (
+                <>
+                  {miniLabel && (
+                    <span className="mr-1.5 text-[12px] font-medium tracking-normal text-slate-400">{miniLabel}</span>
+                  )}
+                  {value.slice(4)}
+                </>
+              ) : (
+                value
+              )}
+              {displayUnit && (
+                <span className="ml-1.5 text-[12px] font-medium tracking-normal text-slate-400">{displayUnit}</span>
               )}
             </div>
-            <span
-              className="absolute -right-1 -top-3 flex h-10 w-10 items-center justify-center rounded-lg border-2 border-white shadow-[0_4px_8px_rgba(15,23,42,0.14)]"
-              style={{
-                background: `linear-gradient(135deg, color-mix(in srgb, ${color} 45%, white), ${color})`,
-              }}
-              aria-hidden="true"
-            >
-              <AppIcon name={icon} size={19} strokeWidth={1.5} className="text-white" />
-            </span>
+
+            {showChange && (
+              <div className="flex min-w-0 items-center gap-2 text-[11px] leading-none">
+                <span
+                  className={`inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-1 font-semibold ${
+                    isUp ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
+                  }`}
+                >
+                  <AppIcon name={isUp ? 'arrow-up' : 'arrow-down'} size={11} strokeWidth={2.5} />
+                  {formatChange(change)}
+                </span>
+                <span className="min-w-0 truncate text-slate-400">{changeLabel}</span>
+              </div>
+            )}
           </>
         )}
       </Tag>
