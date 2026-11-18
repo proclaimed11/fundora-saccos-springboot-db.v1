@@ -186,3 +186,19 @@ export function AppIcon({ name, className, size = 16, strokeWidth = 2 }: AppIcon
 
   return <Icon aria-hidden="true" className={className} size={size} strokeWidth={strokeWidth} />
 }
+
+export const THEMED_STEPPER_STYLES = {
+  stepIcon: {
+    width: 24,
+    height: 24,
+    minWidth: 24,
+    minHeight: 24,
+    border: 0,
+    borderRadius: 0,
+    background: 'transparent',
+    color: 'var(--app-brand)',
+    '--stepper-icon-color': 'var(--app-brand)',
+  },
+  stepCompletedIcon: { color: 'var(--app-brand)' },
+  stepIconContent: { color: 'var(--app-brand)' },
+}
