@@ -35,7 +35,7 @@ import {
 import { ExistingLoansPanel } from './existingLoansPanel'
 import { ContractConfirmDialog } from './contractDialogs'
 import { clearDraft, loadDraft, saveDraft } from './draftStore'
-import { AppIcon} from '../../components/appIcon'
+import { AppIcon, stepIcon } from '../../components/appIcon'
 /* ---------- types ---------- */
 
 // each guarantor and asset has its own id so the forms keep their state when one is removed
@@ -144,16 +144,16 @@ const STEP_LABEL: Record<StepId, string> = {
   review: 'Review',
 }
 
-// the icon shown on each step instead of its number
-// const STEP_ICON: Record<StepId, string> = {
-//   applicant: 'contact-round',
-//   details: 'banknote',
-//   requirements: 'square-check',
-//   guarantor: 'user-round',
-//   collateral: 'shield',
-//   credit: 'calculator',
-//   review: 'file-check',
-// }
+// the icon shown on each step node
+const STEP_ICON: Record<StepId, string> = {
+  applicant: 'contact-round',
+  details: 'banknote',
+  requirements: 'square-check',
+  guarantor: 'user-round',
+  collateral: 'shield',
+  credit: 'calculator',
+  review: 'file-check',
+}
 
 let nextUid = 1
 const newGuarantor = (): GuarantorItem => ({
@@ -909,9 +909,9 @@ export function NewLoanApplicationPage() {
           }}
           mb="xl"
         >
-          {steps.map((s) => (
-            <Stepper.Step key={s} label={STEP_LABEL[s]} />
-          ))}
+        {steps.map((s) => (
+          <Stepper.Step key={s} label={STEP_LABEL[s]} {...stepIcon(STEP_ICON[s])} />
+        ))}
         </Stepper>
 
         {notice && !submitted && (

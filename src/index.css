@@ -397,3 +397,85 @@ html {
     animation: none;
   }
 }
+
+
+/* ---------- stepper: round nodes joined by a line (use className="app-stepper") ---------- */
+
+.app-stepper {
+  --node: 34px;
+}
+
+.app-stepper .mantine-Stepper-steps {
+  align-items: flex-start;
+}
+
+.app-stepper .mantine-Stepper-step {
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 84px;
+  padding: 0;
+}
+
+.app-stepper .mantine-Stepper-stepWrapper {
+  padding: 4px; /* room for the ring around the active node */
+}
+
+.app-stepper .mantine-Stepper-stepBody {
+  margin: 0;
+  text-align: center;
+}
+
+.app-stepper .mantine-Stepper-stepLabel {
+  color: #6b7280;
+  font-size: 0.93rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.app-stepper .mantine-Stepper-step[data-progress] .mantine-Stepper-stepLabel {
+  color: #111827;
+  font-weight: 700;
+}
+
+.app-stepper .mantine-Stepper-step[data-completed] .mantine-Stepper-stepLabel {
+  color: #374151;
+}
+
+/* upcoming: white node, grey outline */
+.app-stepper .mantine-Stepper-stepIcon {
+  width: var(--node);
+  height: var(--node);
+  min-width: var(--node);
+  border: 1px solid #d1d5db;
+  border-radius: 9999px;
+  background: #fff;
+  color: #6b7280;
+  transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
+}
+
+.app-stepper .mantine-Stepper-stepIcon:is([data-progress], [data-completed]) {
+  border-color: var(--app-brand);
+  background: var(--app-brand);
+  color: #fff;
+}
+
+/* current: filled node with a ring around it */
+.app-stepper .mantine-Stepper-stepIcon[data-progress] {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 4px var(--app-brand);
+}
+
+.app-stepper .mantine-Stepper-stepCompletedIcon {
+  color: #fff;
+}
+
+/* the line runs through the middle of the nodes, not of node + label */
+.app-stepper .mantine-Stepper-separator {
+  height: 2px;
+  margin: calc(var(--node) / 2 + 3px) 0 0;
+  background: #d1d5db;
+}
+
+.app-stepper .mantine-Stepper-separator[data-active] {
+  background: var(--app-brand);
+}

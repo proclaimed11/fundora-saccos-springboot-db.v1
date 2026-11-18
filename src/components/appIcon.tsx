@@ -189,10 +189,10 @@ export function AppIcon({ name, className, size = 16, strokeWidth = 2 }: AppIcon
 
 export const STEPPER_ICON_SIZE = 28
 
-// the icon of a step: thin stroke, no circle, same icon when the step is done
+// the icon inside a stepper node; the same icon is shown once the step is done
 export const stepIcon = (name: string) => ({
-  icon: <AppIcon name={name} size={STEPPER_ICON_SIZE - 2} strokeWidth={1} />,
-  completedIcon: <AppIcon name={name} size={STEPPER_ICON_SIZE - 2} strokeWidth={1} />,
+  icon: <AppIcon name={name} size={16} strokeWidth={1.75} />,
+  completedIcon: <AppIcon name={name} size={16} strokeWidth={1.75} />,
 })
 
 export const THEMED_STEPPER_STYLES = {

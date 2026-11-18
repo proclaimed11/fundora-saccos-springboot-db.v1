@@ -1,4 +1,4 @@
-import { AppIcon, THEMED_STEPPER_STYLES } from '../../components/appIcon'
+import { AppIcon, stepIcon } from '../../components/appIcon'
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import dayjs from 'dayjs'
 import {
@@ -303,33 +303,17 @@ export function NewApplicantPage() {
           active={verified ? 4 : active}
           size="xs"
           color="brand"
-          //styles={THEMED_STEPPER_STYLES}
+          className="app-stepper"
           allowNextStepsSelect={false}
           onStepClick={(i) => {
             if (active < 3 && i < active && !loading) setActive(i)
           }}
           mb="xl"
         >
-          <Stepper.Step
-            label="Personal"
-            icon={<AppIcon name="user-round" size={20} strokeWidth={1.5} />}
-            completedIcon={<AppIcon name="user-round" size={20} strokeWidth={1.5} />}
-          />
-          <Stepper.Step
-            label="Address"
-            icon={<AppIcon name="map-pin" size={20} strokeWidth={1.5} />}
-            completedIcon={<AppIcon name="map-pin" size={20} strokeWidth={1.5} />}
-          />
-          <Stepper.Step
-            label="Identity"
-            icon={<AppIcon name="file-user" size={20} strokeWidth={1.5} />}
-            completedIcon={<AppIcon name="file-user" size={20} strokeWidth={1.5} />}
-          />
-          <Stepper.Step
-            label="Verify"
-            icon={<AppIcon name="shield" size={20} strokeWidth={1.5} />}
-            completedIcon={<AppIcon name="shield" size={20} strokeWidth={1.5} />}
-          />
+          <Stepper.Step label="Personal" {...stepIcon('user-round')} />
+          <Stepper.Step label="Address" {...stepIcon('map-pin')} />
+          <Stepper.Step label="Identity" {...stepIcon('file-user')} />
+          <Stepper.Step label="Verify" {...stepIcon('shield')} />
         </Stepper>
 
         <form onSubmit={handleSubmit} noValidate>
