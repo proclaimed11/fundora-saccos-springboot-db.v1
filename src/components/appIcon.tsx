@@ -187,12 +187,26 @@ export function AppIcon({ name, className, size = 16, strokeWidth = 2 }: AppIcon
   return <Icon aria-hidden="true" className={className} size={size} strokeWidth={strokeWidth} />
 }
 
+export const STEPPER_ICON_SIZE = 28
+
+// the icon of a step: thin stroke, no circle, same icon when the step is done
+export const stepIcon = (name: string) => ({
+  icon: <AppIcon name={name} size={STEPPER_ICON_SIZE - 2} strokeWidth={1} />,
+  completedIcon: <AppIcon name={name} size={STEPPER_ICON_SIZE - 2} strokeWidth={1} />,
+})
+
 export const THEMED_STEPPER_STYLES = {
+  // the line sits at the middle of the icon, not the middle of icon + label
+  steps: { alignItems: 'flex-start' },
+  step: { flexDirection: 'column', alignItems: 'center', gap: 6, minWidth: 72 },
+  stepBody: { marginInlineStart: 0, textAlign: 'center' },
+  stepLabel: { textAlign: 'center', whiteSpace: 'nowrap' },
+  separator: { marginTop: STEPPER_ICON_SIZE / 2 - 1, marginInline: 8 },
   stepIcon: {
-    width: 24,
-    height: 24,
-    minWidth: 24,
-    minHeight: 24,
+    width: STEPPER_ICON_SIZE,
+    height: STEPPER_ICON_SIZE,
+    minWidth: STEPPER_ICON_SIZE,
+    minHeight: STEPPER_ICON_SIZE,
     border: 0,
     borderRadius: 0,
     background: 'transparent',

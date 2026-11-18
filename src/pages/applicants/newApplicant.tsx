@@ -303,7 +303,7 @@ export function NewApplicantPage() {
           active={verified ? 4 : active}
           size="xs"
           color="brand"
-          styles={THEMED_STEPPER_STYLES}
+          //styles={THEMED_STEPPER_STYLES}
           allowNextStepsSelect={false}
           onStepClick={(i) => {
             if (active < 3 && i < active && !loading) setActive(i)
