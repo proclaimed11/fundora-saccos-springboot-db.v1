@@ -29,6 +29,7 @@ import {
   useUpdateApplicant,
   verifyOtpRequest,
 } from '../../api/applicants'
+import { AFRICAN_NATIONALITIES } from './africanCountries'
 import { STATUS, registrationStepsDone, type Applicant, type ApplicantStatus } from './applicantsData'
 
 type FormValues = {
@@ -92,7 +93,8 @@ const STEP_KEYS: Record<number, (keyof FormValues)[]> = {
 }
 
 const EMAIL = /^\S+@\S+\.\S+$/
-const PHONE = /^0\d{9}$/
+const PHONE = /^\d{10}$/
+const DIGITS = /^\d+$/
 
 const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
 
@@ -110,8 +112,8 @@ function validate(step: number, v: FormValues): Errors {
     need('lastName', 'Enter the last name')
     need('gender', 'Select a gender')
     need('dateOfBirth', 'Enter the date of birth')
-    if (!v.phone.trim()) e.phone = 'Enter a phone number'
-    else if (!PHONE.test(v.phone.trim())) e.phone = 'Enter 10 digits starting with 0'
+       if (!v.phone.trim()) e.phone = 'Enter a phone number'
+    else if (!PHONE.test(v.phone.trim())) e.phone = 'Phone must be exactly 10 digits'
     if (!v.email.trim()) e.email = 'Enter an email address'
     else if (!EMAIL.test(v.email.trim())) e.email = 'Enter a valid email address'
   }
@@ -123,9 +125,11 @@ function validate(step: number, v: FormValues): Errors {
   }
 
   if (step === 2) {
-    need('nationality', 'Enter the nationality')
+    need('nationality', 'Select the nationality')
     need('occupation', 'Enter the occupation')
-    need('nidaNumber', 'Enter the NIDA number')
+    if (!v.nidaNumber.trim()) e.nidaNumber = 'Enter the NIDA number'
+    else if (!DIGITS.test(v.nidaNumber.trim())) e.nidaNumber = 'NIDA number must contain digits only'
+    if (v.tinNumber.trim() && !DIGITS.test(v.tinNumber.trim())) e.tinNumber = 'TIN number must contain digits only'
     if (!v.nidaDocument) e.nidaDocument = 'Upload the NIDA document'
     if (!v.idScan) e.idScan = 'Upload the ID scan'
   }
@@ -536,8 +540,11 @@ export function NewApplicantPage() {
                   label="Phone"
                   placeholder="0700000000"
                   maxLength={10}
-                  inputMode="tel"
-                  {...text('phone')}
+                  inputMode="numeric"
+                  size="sm"
+                  value={values.phone}
+                  onChange={(e) => set('phone', e.currentTarget.value.replace(/\D/g, ''))}
+                  error={errors.phone}
                 />
                 <TextInput label="Email" type="email" placeholder="john@example.com" {...text('email')} />
               </SimpleGrid>
@@ -578,10 +585,37 @@ export function NewApplicantPage() {
               </Alert>
             ) : (
               <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-                <TextInput label="Nationality" placeholder="Tanzanian" {...text('nationality')} />
+                  <Select
+                  label="Nationality"
+                  placeholder="Select or search nationality"
+                  size="sm"
+                  searchable
+                  nothingFoundMessage="No nationality found"
+                  data={AFRICAN_NATIONALITIES}
+                  allowDeselect={false}
+                  value={values.nationality || null}
+                  onChange={(v) => set('nationality', v ?? '')}
+                  error={errors.nationality}
+                />
                 <TextInput label="Occupation" placeholder="Software engineer" {...text('occupation')} />
-                <TextInput label="NIDA number" placeholder="NIDA123" {...text('nidaNumber')} />
-                <TextInput label="TIN number (optional)" placeholder="TIN123" {...text('tinNumber')} />
+                <TextInput
+                  label="NIDA number"
+                  placeholder="19900101123456789"
+                  inputMode="numeric"
+                  size="sm"
+                  value={values.nidaNumber}
+                  onChange={(e) => set('nidaNumber', e.currentTarget.value.replace(/\D/g, ''))}
+                  error={errors.nidaNumber}
+                />
+                <TextInput
+                  label="TIN number (optional)"
+                  placeholder="123456789"
+                  inputMode="numeric"
+                  size="sm"
+                  value={values.tinNumber}
+                  onChange={(e) => set('tinNumber', e.currentTarget.value.replace(/\D/g, ''))}
+                  error={errors.tinNumber}
+                />
                 <FileInput
                   label="NIDA document"
                   placeholder="Upload PDF or image"

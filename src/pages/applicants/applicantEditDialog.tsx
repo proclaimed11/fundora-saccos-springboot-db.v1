@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react'
 import { Alert, Badge, Button, Checkbox, Modal, Select, SimpleGrid, Text, TextInput } from '@mantine/core'
 import { DateInput } from '@mantine/dates'
 import { STATUS, fullName, type Applicant } from './applicantsData'
+import { AFRICAN_NATIONALITIES } from './africanCountries'
+
 
 const EMAIL = /^\S+@\S+\.\S+$/
-const PHONE = /^0\d{9}$/
+const PHONE = /^\d{10}$/
 
 export type ApplicantEditInput = Pick<
   Applicant,
@@ -182,13 +184,27 @@ export function ApplicantEditDialog({ opened, applicant, saving = false, serverE
               onChange={(v) => set('dateOfBirth', v ?? '')}
               error={errors.dateOfBirth}
             />
-            <TextInput label="Nationality" placeholder="Tanzanian" {...text('nationality')} />
+              <Select
+              label="Nationality"
+              placeholder="Select or search nationality"
+              size="sm"
+              searchable
+              nothingFoundMessage="No nationality found"
+              data={AFRICAN_NATIONALITIES}
+              allowDeselect={false}
+              value={values.nationality || null}
+              onChange={(v) => set('nationality', v ?? '')}
+              error={errors.nationality}
+            />
             <TextInput
               label="Phone"
               placeholder="0700000000"
               maxLength={10}
-              inputMode="tel"
-              {...text('phone')}
+              inputMode="numeric"
+              size="sm"
+              value={values.phone}
+              onChange={(e) => set('phone', e.currentTarget.value.replace(/\D/g, ''))}
+              error={errors.phone}
             />
             <TextInput label="Email" type="email" placeholder="john@example.com" {...text('email')} />
           </SimpleGrid>
