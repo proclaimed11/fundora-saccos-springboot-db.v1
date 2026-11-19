@@ -771,10 +771,10 @@ export function NewApplicantPage() {
                   <span />
                 )}
                 <Group gap="xs">
-                  <Button type="button" variant="subtle" color="gray" disabled={loading} onClick={() => void saveAndExit()}>
+                  <Button type="button" variant="default" color="gray" disabled={loading} onClick={() => void saveAndExit()}>
                     Save &amp; exit
                   </Button>
-                  <Button type="submit" color="brand" loading={loading}>
+                  <Button type="submit" color="brand" leftSection={<AppIcon name="save-check" />} loading={loading}>
                     Save &amp; continue
                   </Button>
                 </Group>
