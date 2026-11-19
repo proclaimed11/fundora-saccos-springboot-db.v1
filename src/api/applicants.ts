@@ -4,7 +4,7 @@ import dayjs from 'dayjs'
 import { ApiError, api } from './client'
 import { queryClient } from './queryClient'
 import { messageResponseSchema, type MessageResponse } from './schemas'
-import { STATUS, fullName, type Applicant, type ApplicantStatus } from '../pages/applicants/applicantsData'
+import { fullName, normalizeStatus, type Applicant } from '../pages/applicants/applicantsData'
 
 /* ---------- reading applicants: GET /api/applicants (raw CRUD) ---------- */
 
@@ -42,8 +42,6 @@ const applicantListSchema = z.union([
 // MALE -> Male, the forms use this spelling
 const titleCase = (text: string) => (text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : '')
 
-const STATUSES = Object.keys(STATUS)
-
 // the table row -> the shape every applicant screen already uses
 export function toApplicant(r: ApplicantRow): Applicant {
   const firstName = r.firstName ?? ''
@@ -66,7 +64,7 @@ export function toApplicant(r: ApplicantRow): Applicant {
     locationPin: r.locationPin ?? '',
     nationality: r.nationality ?? '',
     // a status this app does not know is treated as the first stage instead of breaking the page
-    status: r.status && STATUSES.includes(r.status) ? (r.status as ApplicantStatus) : 'PENDING_OTP',
+    status: normalizeStatus(r.status),
     isReturning: r.isReturning ?? r.returning ?? false,
     registered: r.createdAt ? dayjs(r.createdAt).format('YYYY-MM-DD') : '',
   }
@@ -177,6 +175,67 @@ export const verifyOtpRequest = (applicantId: number, code: string) =>
     refreshApplicants()
     return res
   })
+
+  /* ---------- stepped registration: each call saves one step and moves the status on ---------- */
+
+// the doc does not show these responses, so the same shape as /register is assumed: { data: { id, ... } }
+const stepResponseSchema = z.object({
+  message: z.string().optional(),
+  data: z.object({
+    id: z.number(),
+    applicantNo: z.string().nullish(),
+    status: z.string().nullish(),
+  }),
+})
+
+export type StepResult = z.infer<typeof stepResponseSchema>
+
+export type PersonalDetailsBody = {
+  firstName: string
+  middleName: string
+  lastName: string
+  /** MALE or FEMALE */
+  gender: string
+  /** yyyy-MM-dd */
+  dateOfBirth: string
+  phone: string
+  email: string
+  isReturning: boolean
+}
+
+export type AddressDetailsBody = {
+  applicantId: number
+  address: string
+  locationName: string
+  locationPin: string
+}
+
+export type IdentificationBody = {
+  applicantId: number
+  nationality: string
+  occupation: string
+  nidaNumber: string
+  nidaDocumentPath: string
+  tinNumber?: string
+  idScanFilePath: string
+  idScanFileName: string
+  idScanMimeType: string
+}
+
+const saveStep = (path: string, body: unknown) =>
+  api<StepResult>(path, { method: 'POST', body, schema: stepResponseSchema, public: true }).then((res) => {
+    refreshApplicants()
+    return res
+  })
+
+export const savePersonalDetailsRequest = (body: PersonalDetailsBody) =>
+  saveStep('/api/onboarding/personal-details', body)
+
+export const saveAddressDetailsRequest = (body: AddressDetailsBody) =>
+  saveStep('/api/onboarding/address-details', body)
+
+export const saveIdentificationRequest = (body: IdentificationBody) =>
+  saveStep('/api/onboarding/identification', body)
 
   /* ---------- small reader ---------- */
 

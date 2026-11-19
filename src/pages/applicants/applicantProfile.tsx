@@ -144,6 +144,7 @@ export function ApplicantProfile() {
     if (label === 'Review KYC') setReviewOpen(true)
     else if (label === 'Re-check KYC') setRecheckOpen(true)
     else if (label === 'Send OTP') setOtpOpen(true)
+    else if (label === 'Continue registration') navigate(`/applicants/new?applicantId=${applicant.id}`)
     else if (label === 'Start loan application') navigate(`/loan-applications/new?applicantId=${applicant.id}`)
   }
 

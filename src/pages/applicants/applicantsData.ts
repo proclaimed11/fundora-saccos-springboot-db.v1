@@ -1,7 +1,13 @@
 import dayjs from 'dayjs'
 import type { PaymentMethod } from '../loans/loanApplicationsData'
 
-export type ApplicantStatus = 'PENDING_OTP' | 'PENDING_KYC' | 'KYC_APPROVED' | 'REJECTED'
+export type ApplicantStatus =
+  | 'PERSONAL_DETAILS'
+  | 'ADDRESS_DETAILS'
+  | 'PENDING_OTP'
+  | 'PENDING_KYC'
+  | 'KYC_APPROVED'
+  | 'REJECTED'
 
 export type Applicant = {
   id: number
@@ -38,15 +44,40 @@ export const applicants: Applicant[] = [
 ]
 
 export const STATUS: Record<ApplicantStatus, { label: string; color: string; step: number }> = {
+  PERSONAL_DETAILS: { label: 'Personal details saved', color: 'gray', step: 0 },
+  ADDRESS_DETAILS: { label: 'Address saved', color: 'gray', step: 0 },
   PENDING_OTP: { label: 'Pending OTP', color: 'gray', step: 1 },
   PENDING_KYC: { label: 'Pending KYC', color: 'yellow', step: 2 },
   KYC_APPROVED: { label: 'KYC Approved', color: 'brand', step: 3 },
   REJECTED: { label: 'Rejected', color: 'red', step: 2 },
 }
 
+// the API document and our database sample name the middle statuses differently.
+// Both spellings are accepted here, so the screens only ever see one set.
+const STATUS_ALIASES: Record<string, ApplicantStatus> = {
+  PERSONAL_DETAILS: 'PERSONAL_DETAILS',
+  ADDRESS_DETAILS: 'ADDRESS_DETAILS',
+  IDENTITY_VERIFICATION: 'PENDING_OTP',
+  PENDING_OTP: 'PENDING_OTP',
+  OTP_VERIFIED: 'PENDING_KYC',
+  PENDING_KYC: 'PENDING_KYC',
+  KYC_APPROVED: 'KYC_APPROVED',
+  REJECTED: 'REJECTED',
+}
+
+export const normalizeStatus = (raw: string | null | undefined): ApplicantStatus =>
+  (raw ? STATUS_ALIASES[raw.toUpperCase()] : undefined) ?? 'PENDING_OTP'
+
+// how many registration steps the server already holds (4 means the code was verified)
+export const registrationStepsDone = (s: ApplicantStatus): number =>
+  ({ PERSONAL_DETAILS: 1, ADDRESS_DETAILS: 2, PENDING_OTP: 3, PENDING_KYC: 4, KYC_APPROVED: 4, REJECTED: 4 })[s]
+
 // which buttons show for each stage (display only)
 export function stageActions(a: Applicant): { label: string; icon: string }[] {
   const list: { label: string; icon: string }[] = []
+  if (a.status === 'PERSONAL_DETAILS' || a.status === 'ADDRESS_DETAILS') {
+    list.push({ label: 'Continue registration', icon: 'pencil' })
+  }
   if (a.status === 'PENDING_OTP') list.push({ label: 'Send OTP', icon: 'mail' })
   if (a.status === 'PENDING_KYC') list.push({ label: 'Review KYC', icon: 'contact-round' })
   if (a.isReturning && a.status !== 'REJECTED') list.push({ label: 'Re-check KYC', icon: 'refresh-cw' })
@@ -126,7 +157,7 @@ export type ExistingDebt = {
 
 // an applicant who has not verified their OTP has no financial profile yet
 export function financialFor(a: Applicant): FinancialProfile | null {
-  if (a.status === 'PENDING_OTP') return null
+  if (a.status === 'PENDING_OTP' || a.status === 'PERSONAL_DETAILS' || a.status === 'ADDRESS_DETAILS') return null
   return { employmentType: 'Employed', employer: 'Acme Tech Ltd', monthlyIncome: 2500000, monthlyExpenses: 1200000, dependants: 2 }
 }
 

@@ -54,6 +54,10 @@ function SectionTitle({ children }: { children: string }) {
 
 // the label and icon for each status an applicant can move to
 const STAGE_EVENT: Record<string, { title: string; icon: string }> = {
+  PERSONAL_DETAILS: { title: 'Personal details saved', icon: 'user-round' },
+  ADDRESS_DETAILS: { title: 'Address saved', icon: 'map-pin' },
+  IDENTITY_VERIFICATION: { title: 'Identity saved', icon: 'file-user' },
+  OTP_VERIFIED: { title: 'OTP verified', icon: 'shield' },
   PENDING_OTP: { title: 'Applicant registered', icon: 'user-round-plus' },
   PENDING_KYC: { title: 'OTP verified', icon: 'shield' },
   KYC_APPROVED: { title: 'KYC approved', icon: 'circle-check' },
@@ -118,8 +122,8 @@ function Timeline({ applicant, limit }: { applicant: Applicant; limit?: number }
 export function OverviewTab({ applicant }: { applicant: Applicant }) {
   const history = useApplicantHistory(applicant.id)
   // the date the applicant reached a status, the latest one if it happened twice
-  const reachedOn = (status: string) => {
-    const row = [...(history.data ?? [])].reverse().find((h) => h.newStatus === status)
+  const reachedOn = (...statuses: string[]) => {
+    const row = [...(history.data ?? [])].reverse().find((h) => statuses.includes(h.newStatus ?? ''))
     return row?.changedAt ? dayjs(row.changedAt).format('MMM D, YYYY') : undefined
   }
 
@@ -141,8 +145,8 @@ export function OverviewTab({ applicant }: { applicant: Applicant }) {
         color={applicant.status === 'REJECTED' ? 'red' : 'brand'}
         className={`app-stepper${applicant.status === 'REJECTED' ? ' app-stepper-danger' : ''}`}
       >
-        <Stepper.Step label="Registered" description={reachedOn('PENDING_OTP')} {...stepIcon('user-round-plus')} />
-        <Stepper.Step label="OTP verified" description={reachedOn('PENDING_KYC')} {...stepIcon('key-round')} />
+        <Stepper.Step label="Registered" description={reachedOn('IDENTITY_VERIFICATION', 'PENDING_OTP')} {...stepIcon('user-round-plus')} />
+        <Stepper.Step label="OTP verified" description={reachedOn('OTP_VERIFIED', 'PENDING_KYC')} {...stepIcon('key-round')} />
         <Stepper.Step label="KYC approved" description={reachedOn('KYC_APPROVED')} {...stepIcon('shield')} />
       </Stepper>
 
