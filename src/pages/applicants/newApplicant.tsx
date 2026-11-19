@@ -6,8 +6,10 @@ import {
   Badge,
   Button,
   Checkbox,
+  Collapse,
   FileInput,
   Group,
+  Progress,
   Select,
   SimpleGrid,
   Stack,
@@ -208,6 +210,188 @@ const fromApplicant = (a: Applicant): FormValues => ({
   occupation: a.occupation,
 })
 
+/* ---------- the tracker: what has been filled and saved so far ---------- */
+
+type SummaryProps = {
+  values: FormValues
+  savedSteps: number
+  active: number
+  verified: boolean
+  otpSent: boolean
+  destination: string
+  applicantNo: string
+  status: ApplicantStatus
+  hasApplicant: boolean
+  /** the earlier steps can be opened again */
+  canEdit: boolean
+  onEdit: (step: number) => void
+}
+
+type SectionState = 'saved' | 'unsaved' | 'sent' | 'empty'
+
+const STATE_BADGE: Record<SectionState, { label: string; color: string }> = {
+  saved: { label: 'Saved', color: 'green' },
+  unsaved: { label: 'Not saved yet', color: 'yellow' },
+  sent: { label: 'Code sent', color: 'blue' },
+  empty: { label: 'Not started', color: 'gray' },
+}
+
+function RegistrationSummary({
+  values: v,
+  savedSteps,
+  active,
+  verified,
+  otpSent,
+  destination,
+  applicantNo,
+  status,
+  hasApplicant,
+  canEdit,
+  onEdit,
+}: SummaryProps) {
+  // the identity step is on the server, but a resumed form does not hold the numbers or the files
+  const identitySaved = savedSteps > 2
+  const shown = (value: string) => value.trim() || '—'
+  const kept = (value: string) => value.trim() || (identitySaved ? 'Saved earlier' : '—')
+
+  const filled = (step: number) =>
+    step === 2
+      ? STEP_KEYS[2].some((k) => String(v[k]).trim() !== '') || !!v.nidaDocument || !!v.idScan
+      : STEP_KEYS[step].some((k) => k !== 'isReturning' && String(v[k]).trim() !== '')
+
+  const stateOf = (step: number): SectionState => (savedSteps > step ? 'saved' : filled(step) ? 'unsaved' : 'empty')
+
+  const sections: { title: string; icon: string; step: number; state: SectionState; items: [string, string][] }[] = [
+    {
+      title: 'Personal details',
+      icon: 'user-round',
+      step: 0,
+      state: stateOf(0),
+      items: [
+        ['Full name', shown([v.firstName, v.middleName, v.lastName].filter((x) => x.trim()).join(' '))],
+        ['Gender', shown(v.gender)],
+        ['Date of birth', v.dateOfBirth ? dayjs(v.dateOfBirth).format('MMM D, YYYY') : '—'],
+        ['Phone', shown(v.phone)],
+        ['Email', shown(v.email)],
+        ['Applicant type', v.isReturning ? 'Returning' : 'New'],
+      ],
+    },
+    {
+      title: 'Address details',
+      icon: 'map-pin',
+      step: 1,
+      state: stateOf(1),
+      items: [
+        ['Address', shown(v.address)],
+        ['Location name', shown(v.locationName)],
+        ['Location pin', shown(v.locationPin)],
+      ],
+    },
+    {
+      title: 'Identity verification',
+      icon: 'file-user',
+      step: 2,
+      state: stateOf(2),
+      items: [
+        ['Nationality', shown(v.nationality)],
+        ['Occupation', shown(v.occupation)],
+        ['NIDA number', kept(v.nidaNumber)],
+        ['TIN number', v.tinNumber.trim() || (identitySaved ? 'Saved earlier or none' : 'None')],
+        ['NIDA document', v.nidaDocument?.name ?? (identitySaved ? 'Saved earlier' : '—')],
+        ['ID scan', v.idScan?.name ?? (identitySaved ? 'Saved earlier' : '—')],
+      ],
+    },
+    {
+      title: 'Verification code',
+      icon: 'shield',
+      step: 3,
+      state: verified ? 'saved' : otpSent ? 'sent' : 'empty',
+      items: [
+        ['Sent to', shown(destination)],
+        ['Status', verified ? 'Verified' : otpSent ? 'Waiting for the code' : 'Not sent yet'],
+      ],
+    },
+  ]
+
+  const done = [0, 1, 2].filter((i) => savedSteps > i).length + (verified ? 1 : 0)
+
+  return (
+    <div className="rounded-md bg-white p-4 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Text size="sm" fw={600}>
+            Registration summary
+          </Text>
+          <Text size="xs" c="dimmed">
+            {hasApplicant ? applicantNo || 'Applicant created' : 'Nothing is saved yet'}
+          </Text>
+        </div>
+        {hasApplicant && (
+          <Badge variant="light" color={STATUS[status].color} radius="sm" size="sm" tt="none">
+            {STATUS[status].label}
+          </Badge>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <Progress value={(done / 4) * 100} size="xs" radius="xl" color="brand" />
+        <div className="mt-1 text-[11px] text-gray-500">{done} of 4 steps saved</div>
+      </div>
+
+      <div className="mt-3 space-y-3">
+        {sections.map((s) => {
+          const current = !verified && active === s.step
+          return (
+            <section
+              key={s.title}
+              className={`rounded-md border px-3 py-2.5 ${current ? 'border-brand ring-1 ring-brand' : 'border-gray-200'}`}
+            >
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <AppIcon name={s.icon} size={14} className="shrink-0 text-gray-400" />
+                  <span className="truncate text-xs font-semibold text-gray-800">{s.title}</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Badge
+                    variant="light"
+                    color={STATE_BADGE[s.state].color}
+                    radius="sm"
+                    size="xs"
+                    tt="none"
+                  >
+                    {s.step === 3 && s.state === 'saved' ? 'Verified' : STATE_BADGE[s.state].label}
+                  </Badge>
+                  {canEdit && s.step < active && (
+                    <Button size="compact-xs" variant="subtle" onClick={() => onEdit(s.step)}>
+                      Edit
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <dl className="space-y-1">
+                {s.items.map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-3 text-xs">
+                    <dt className="shrink-0 text-gray-500">{label}</dt>
+                    <dd className={`min-w-0 break-words text-right ${value === '—' ? 'text-gray-300' : 'text-gray-800'}`}>
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )
+        })}
+      </div>
+
+      <p className="mt-3 text-[11px] text-gray-400">
+        Details are saved to the server when you click Save &amp; continue. A section marked Not saved yet is only on this
+        screen.
+      </p>
+    </div>
+  )
+}
+
 export function NewApplicantPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -244,6 +428,7 @@ export function NewApplicantPage() {
   const [cancelOpen, setCancelOpen] = useState(false)
   // one flag for every call, so a button cannot be pressed twice
   const [loading, setLoading] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // continue an unfinished registration: fill the form and jump to the first unsaved step
   useEffect(() => {
@@ -484,6 +669,22 @@ export function NewApplicantPage() {
 
   const identitySaved = savedSteps > 2
 
+    const summary = (
+    <RegistrationSummary
+      values={values}
+      savedSteps={savedSteps}
+      active={active}
+      verified={verified}
+      otpSent={otpSent}
+      destination={destination}
+      applicantNo={applicantNo}
+      status={status}
+      hasApplicant={applicantId !== null}
+      canEdit={active < 3 && !loading && !verified}
+      onEdit={setActive}
+    />
+  )
+
   return (
     <DashboardLayout
       title="New applicant"
@@ -497,8 +698,27 @@ export function NewApplicantPage() {
         )
       }
     >
-      <div className="rounded-md bg-white p-6 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
-        <Stepper
+      
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      {/* small screens: the tracker folds away above the form */}
+      <div className="xl:hidden">
+        <Button
+          size="xs"
+          variant="default"
+          fullWidth
+          leftSection={<AppIcon name="clipboard" />}
+          rightSection={<AppIcon name={summaryOpen ? 'chevron-up' : 'chevron-down'} />}
+          onClick={() => setSummaryOpen((o) => !o)}
+        >
+          {summaryOpen ? 'Hide' : 'Show'} saved details
+        </Button>
+        <Collapse expanded={summaryOpen}>
+          <div className="mt-3">{summary}</div>
+        </Collapse>
+      </div>
+
+    <div className="min-w-0 rounded-md bg-white p-6 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
+      <Stepper
           active={verified ? 4 : active}
           size="xs"
           color="brand"
@@ -805,6 +1025,10 @@ export function NewApplicantPage() {
             </>
           )}
         </form>
+      </div>
+
+        {/* large screens: the tracker stays in view on the right */}
+        <aside className="hidden xl:sticky xl:top-4 xl:block">{summary}</aside>
       </div>
 
       <ContractConfirmDialog
