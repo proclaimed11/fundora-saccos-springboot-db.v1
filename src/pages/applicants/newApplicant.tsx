@@ -26,6 +26,7 @@ import {
   savePersonalDetailsRequest,
   sendOtpRequest,
   useApplicant,
+  useDeleteApplicant,
   useUpdateApplicant,
   verifyOtpRequest,
 } from '../../api/applicants'
@@ -216,6 +217,8 @@ export function NewApplicantPage() {
   const resumeId = params.get('applicantId') ?? undefined
   const existing = useApplicant(resumeId)
   const updateApplicant = useUpdateApplicant()
+  const deleteApplicant = useDeleteApplicant()
+  const [exitError, setExitError] = useState<string | null>(null)
 
   const [active, setActive] = useState(0)
   const [values, setValues] = useState<FormValues>(emptyValues)
@@ -269,9 +272,26 @@ export function NewApplicantPage() {
   const touched =
     applicantId !== null || (Object.keys(values) as (keyof FormValues)[]).some((k) => values[k] !== emptyValues[k])
   const cancelRegistration = () => (touched ? setCancelOpen(true) : goBack())
-  const leave = () => {
-    setCancelOpen(false)
-    goBack()
+  const leave = async () => {
+    // a registration that was never saved has nothing on the server
+    if (applicantId === null) {
+      setCancelOpen(false)
+      goBack()
+      return
+    }
+    if (deleteApplicant.isPending) return
+    setExitError(null)
+    try {
+      // DELETE /api/applicants/{id}, removes the partially registered applicant
+      await deleteApplicant.mutateAsync(applicantId)
+      setCancelOpen(false)
+      goBack()
+    } catch (err) {
+      setExitError(
+        messageOf(err, 'Could not delete the partial registration.') +
+          ' Nothing was left unsaved on your side, try again or delete it from the applicants list.',
+      )
+    }
   }
 
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => {
@@ -789,14 +809,18 @@ export function NewApplicantPage() {
 
       <ContractConfirmDialog
         opened={cancelOpen}
-        title={applicantId === null ? 'Cancel registration' : 'Exit registration'}
+        title={exitError ? 'Could not exit' : applicantId === null ? 'Cancel registration' : 'Exit registration'}
         message={
-          applicantId === null
+          exitError ??
+          (applicantId === null
             ? 'Leave without saving? Everything you entered is lost.'
-            : `${applicantNo || 'This applicant'} keeps the steps you already saved (${STATUS[status].label}). Anything you typed on this step but did not save is lost. You can continue later from the applicant's profile.`
+            : `Exit now? ${applicantNo || 'This applicant'} was partly registered (${STATUS[status].label}) and the saved record will be permanently deleted from the system. Use "Save & exit" instead to keep it and continue later.`)
         }
-        confirmLabel="Leave"
-        onClose={() => setCancelOpen(false)}
+        confirmLabel={exitError ? 'Try again' : applicantId === null ? 'Leave' : 'Delete and exit'}
+        onClose={() => {
+          setCancelOpen(false)
+          setExitError(null)
+        }}
         onConfirm={leave}
       />
     </DashboardLayout>
