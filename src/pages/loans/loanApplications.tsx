@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { AppIcon } from '../../components/appIcon'
 import { Alert, Badge, Button, Text } from '@mantine/core'
 import dayjs from 'dayjs'
-import { applicants } from '../applicants/applicantsData'
-import { allDrafts, clearDraft } from './draftStore'
+import { useApplicants } from '../../api/applicants'
+import { useUserNames } from '../../api/users'
+import { deleteLoanApplication, useLoanApplications, useLoanDrafts, type LoanDraft } from '../../api/loanApplications'
 import { useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
@@ -12,23 +13,35 @@ import { formatTzs } from '../../utils/format'
 import {
   RANK,
   STATUS,
-  applications,
   methodLabel,
   type ApplicationStatus,
   type LoanApplication,
 } from './loanApplicationsData'
 
-const count = (test: (s: ApplicationStatus) => boolean) =>
-  applications.filter((a) => test(a.status)).length
-
-// here `color` is the icon color
-const stats = [
-  { label: 'Total Applications', value: applications.length, icon: 'file-text', color: '#45bdfc' },
-  { label: 'Drafts', value: count((s) => s === 'DRAFT'), icon: 'pen-line', color: '#868e96' },
-  { label: 'In Review', value: count((s) => ['SUBMITTED', 'CREDIT_APPROVED', 'PENDING_APPROVAL'].includes(s)), icon: 'hourglass', color: '#e08a1e' },
-  { label: 'Approved', value: count((s) => s !== 'REJECTED' && RANK[s] >= 3), icon: 'circle-check', color: 'var(--app-brand)' },
-  { label: 'Rejected', value: count((s) => s === 'REJECTED'), icon: 'circle-x', color: '#ef4444' },
-]
+// a backend row -> the shape the table and its filters use; names are joined from the applicants and users lists
+function toRow(d: LoanDraft, applicantName: string, officerName: string): LoanApplication {
+  const status: ApplicationStatus =
+    d.status in STATUS ? (d.status as ApplicationStatus) : d.finalized ? 'SUBMITTED' : 'DRAFT'
+  return {
+    id: d.id,
+    applicationNo: d.applicationNo || `#${d.id}`,
+    applicantId: d.applicantId,
+    applicantName,
+    loanOfficer: officerName,
+    requestedAmount: d.requestedAmount ?? 0,
+    interestMethod: d.interestMethod ?? 'REDUCING',
+    interestRate: d.interestRate ?? 0,
+    tenure: d.tenure ?? 0,
+    penaltyRate: d.penaltyRate ?? 0,
+    guarantorRequired: d.guarantorRequired,
+    collateralRequired: d.collateralRequired,
+    creditAssessmentRequired: d.creditAssessmentRequired,
+    status,
+    currentStage: d.currentStage || 'APPLICANT',
+    created: d.createdAt,
+    submittedAt: d.submittedAt,
+  }
+}
 
 const statusOptions = (Object.keys(STATUS) as ApplicationStatus[]).map((s) => ({
   value: s,
@@ -50,9 +63,58 @@ function StatusBadge({ status }: { status: ApplicationStatus }) {
 
 export function LoanApplications() {
   const navigate = useNavigate()
-  // UI only: drafts saved in this browser by "Save draft and exit"
-  const [, refresh] = useState(0)
-  const drafts = allDrafts()
+  // GET /api/loan-applications: unfinished drafts saved by the wizard ("Save draft and exit" or any step)
+  const { data: drafts = [] } = useLoanDrafts()
+  const { data: applicantList = [] } = useApplicants()
+  const nameOf = (id: number) => applicantList.find((a) => a.id === id)?.name ?? `Applicant #${id}`
+  const userNames = useUserNames()
+
+  // GET /api/loan-applications: the table and the numbers above it
+  const listQuery = useLoanApplications()
+  const applications: LoanApplication[] = (listQuery.data ?? []).map((d) =>
+    toRow(
+      d,
+      nameOf(d.applicantId),
+      d.loanOfficerId ? (userNames.get(d.loanOfficerId) ?? `User #${d.loanOfficerId}`) : '—',
+    ),
+  )
+  const count = (test: (s: ApplicationStatus) => boolean) => applications.filter((a) => test(a.status)).length
+  // here `color` is the icon color
+  const stats = [
+    { label: 'Total Applications', value: applications.length, icon: 'file-text', color: '#45bdfc' },
+    { label: 'Drafts', value: count((s) => s === 'DRAFT'), icon: 'pen-line', color: '#868e96' },
+    { label: 'In Review', value: count((s) => ['SUBMITTED', 'CREDIT_APPROVED', 'PENDING_APPROVAL'].includes(s)), icon: 'hourglass', color: '#e08a1e' },
+    { label: 'Approved', value: count((s) => s !== 'REJECTED' && RANK[s] >= 3), icon: 'circle-check', color: 'var(--app-brand)' },
+    { label: 'Rejected', value: count((s) => s === 'REJECTED'), icon: 'circle-x', color: '#ef4444' },
+  ]
+
+  // Delete selected: DELETE /api/loan-applications/{id} for each one
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const deleteRows = async (rows: LoanApplication[]) => {
+    setDeleteError(null)
+    const results = await Promise.allSettled(rows.map((r) => deleteLoanApplication(r.id)))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    if (failed > 0) {
+      setDeleteError(
+        `${failed} of ${rows.length} ${rows.length === 1 ? 'application' : 'applications'} could not be deleted. Please try again.`,
+      )
+    }
+  }
+  const [discarding, setDiscarding] = useState<number | null>(null)
+  const [draftError, setDraftError] = useState<string | null>(null)
+
+  // DELETE /api/loan-applications/{id}
+  const discardDraft = async (id: number) => {
+    setDiscarding(id)
+    setDraftError(null)
+    try {
+      await deleteLoanApplication(id)
+    } catch (err) {
+      setDraftError(err instanceof Error ? err.message : 'Could not discard the draft. Please try again.')
+    } finally {
+      setDiscarding(null)
+    }
+  }
 
   const columns: CustomTableColumn<LoanApplication>[] = [
     {
@@ -140,16 +202,23 @@ export function LoanApplications() {
           title={`${drafts.length} saved ${drafts.length === 1 ? 'draft' : 'drafts'}`}
           mb="md"
         >
+          {draftError && (
+            <Text size="xs" c="red" mb={6}>
+              {draftError}
+            </Text>
+          )}
           <ul className="space-y-2">
             {drafts.map((d) => (
-              <li key={d.applicantId} className="flex flex-wrap items-center justify-between gap-2">
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2">
                 <Text size="sm">
-                  {applicants.find((a) => String(a.id) === d.applicantId)?.name ?? 'Applicant'} · stopped at{' '}
-                  {d.stepLabel} · saved {dayjs(d.savedAt).format('MMM D, h:mm A')}
+                  {d.applicationNo || `#${d.id}`} · {nameOf(d.applicantId)} · stopped at{' '}
+                  {(d.currentStage || 'APPLICANT').replace(/_/g, ' ').toLowerCase()}
+                  {d.updatedAt ? ` · saved ${dayjs(d.updatedAt).format('MMM D, h:mm A')}` : ''}
                 </Text>
                 <div className="flex gap-2">
                   <Button
                     size="compact-xs"
+                    disabled={discarding !== null}
                     onClick={() => navigate(`/loan-applications/new?applicantId=${d.applicantId}`)}
                   >
                     Resume
@@ -157,10 +226,9 @@ export function LoanApplications() {
                   <Button
                     size="compact-xs"
                     variant="default"
-                    onClick={() => {
-                      clearDraft(d.applicantId)
-                      refresh((n) => n + 1)
-                    }}
+                    loading={discarding === d.id}
+                    disabled={discarding !== null && discarding !== d.id}
+                    onClick={() => void discardDraft(d.id)}
                   >
                     Discard
                   </Button>
@@ -181,8 +249,25 @@ export function LoanApplications() {
 
       {/* row 2: table in a plain card */}
       <div className="mt-4 rounded-md bg-white p-4 shadow-[0_10px_30px_rgba(76,87,125,0.12)]">
+        {listQuery.error && (
+          <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />} mb="md">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Text size="sm">Could not load the loan applications. {listQuery.error.message}</Text>
+              <Button size="compact-xs" variant="light" color="red" onClick={() => void listQuery.refetch()}>
+                Try again
+              </Button>
+            </div>
+          </Alert>
+        )}
+        {deleteError && (
+          <Alert color="red" variant="light" withCloseButton onClose={() => setDeleteError(null)} icon={<AppIcon name="circle-x" />} mb="md">
+            <Text size="sm">{deleteError}</Text>
+          </Alert>
+        )}
         <CustomTable<LoanApplication>
           size="md"
+          loading={listQuery.isLoading}
+          noRecordText="No loan applications yet"
           data={applications}
           columns={columns}
           searchInput
@@ -193,9 +278,16 @@ export function LoanApplications() {
           confirmModal
           confirmHeading="Delete selected loan applications?"
           confirmBody="The selected loan applications will be deleted. This action cannot be undone."
-          onDelete={() => {}} // UI only for now
+          onDelete={(rows) => void deleteRows(rows)}
           defaultSort={{ accessor: 'created', direction: 'desc' }}
-          onRowClick={(row) => navigate(`/loan-applications/${row.id}`)}
+          // a draft continues in the wizard; the others open the application page (still sample data for now)
+          onRowClick={(row) =>
+            navigate(
+              row.status === 'DRAFT'
+                ? `/loan-applications/new?applicantId=${row.applicantId}`
+                : `/loan-applications/${row.id}`,
+            )
+          }
           exportCsv
           exportFileName="loan-applications"
           print

@@ -11,6 +11,8 @@ export type ViewableDocument = {
   notes?: string
   /** the real file when it was uploaded in this session, sample files have none */
   file?: File | null
+  /** where the backend serves the stored file, used when there is no file from this session */
+  url?: string | null
 }
 
 const isImage = (name: string) => /\.(jpe?g|png|gif|webp)$/i.test(name)
@@ -21,7 +23,9 @@ type Props = { document: ViewableDocument | null; onClose: () => void }
 
 export function DocumentViewer({ document: doc, onClose }: Props) {
   const file = doc?.file ?? null
-  const [url, setUrl] = useState<string | null>(null)
+  const [localUrl, setUrl] = useState<string | null>(null)
+  // a file picked in this session wins, otherwise the stored file on the backend
+  const url = localUrl ?? doc?.url ?? null
 
   // a real file gets a temporary address so it can be shown, released again when it closes
   useEffect(() => {
@@ -52,7 +56,9 @@ export function DocumentViewer({ document: doc, onClose }: Props) {
             <div className="flex h-72 flex-col items-center justify-center gap-2 rounded-md bg-gray-50 text-center">
               <AppIcon name={image ? 'file-image' : 'file-text'} className="text-gray-300" size={36} />
               <Text size="sm" c="dimmed" maw={320}>
-                This is a sample file, so there is nothing to show yet. Files uploaded in this session open here.
+                {url
+                  ? 'This file type cannot be previewed here. Open it in a new tab or download it.'
+                  : 'This file is not available to preview.'}
               </Text>
             </div>
           )}

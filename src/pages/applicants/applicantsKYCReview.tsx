@@ -10,9 +10,20 @@ import type { Applicant } from './applicantsData'
 import { PageState } from '../../components/pageState'
 import { KycDecisionDialog } from './applicantKYCDecisionDialog'
 import { usePageAccess } from '../auth/usePageAccess'
-import { useAllIdentifications, useApplicants } from '../../api/applicants'
+import { useAllIdentifications, useApplicants, usePendingKycSince } from '../../api/applicants'
+import { useAllApplicantDocuments } from '../../api/applicantRecords'
+import { isImage } from './documentDialogs'
 
-type Row = Applicant & { nida: string; waiting: number }
+type Row = Applicant & {
+  nida: string
+  /** null when there is no NIDA row on file */
+  nidaVerified: boolean | null
+  /** the files on record: the NIDA/TIN scans plus the applicant documents */
+  docs: { name: string; fileName: string }[]
+  /** the day the applicant reached Pending KYC, the registration day until the history has loaded */
+  since: string
+  waiting: number
+}
 
 const typeOptions = [
   { value: 'true', label: 'Returning' },
@@ -26,17 +37,32 @@ export function KycReview() {
 
   // GET /api/applicants, the queue is the ones still waiting for a KYC decision
   const { data: all = [], isLoading, error, refetch } = useApplicants()
+  // GET /api/applicant-identifications and /api/applicant-documents
   const { data: identifications = [] } = useAllIdentifications()
-  const nidaOf = (a: Applicant) =>
-    identifications.find((i) => i.applicantId === a.id && i.type === 'NIDA')?.number ?? '—'
+  const { data: documents = [] } = useAllApplicantDocuments()
 
-  const rows: Row[] = all
-    .filter((a) => a.status === 'PENDING_KYC')
-    .map((a) => ({
+  const pending = all.filter((a) => a.status === 'PENDING_KYC')
+  // GET /api/applicant-status-historys/applicant/{id} for each one, the day the code was verified
+  const pendingSince = usePendingKycSince(pending.map((a) => a.id))
+
+  const rows: Row[] = pending.map((a) => {
+    const ids = identifications.filter((i) => i.applicantId === a.id)
+    const nida = ids.find((i) => i.type === 'NIDA')
+    const fileOf = (path: string) => path.split('/').pop() ?? path
+    const docs = [
+      ...ids.filter((i) => i.documentPath).map((i) => ({ name: i.type, fileName: fileOf(i.documentPath as string) })),
+      ...documents.filter((d) => d.applicantId === a.id).map((d) => ({ name: d.type, fileName: d.fileName })),
+    ]
+    const since = pendingSince[a.id] ?? a.registered
+    return {
       ...a,
-      nida: nidaOf(a),
-      waiting: dayjs().diff(a.registered, 'day'),
-    }))
+      nida: nida?.number || '—',
+      nidaVerified: nida ? nida.verified : null,
+      docs,
+      since,
+      waiting: dayjs().startOf('day').diff(dayjs(since), 'day'),
+    }
+  })
 
   const stats = [
     { label: 'Awaiting review', value: rows.length, icon: 'contact-round', color: '#e08a1e' },
@@ -55,24 +81,39 @@ export function KycReview() {
         </div>
       ),
     },
-    { accessor: 'nida', header: 'NIDA number' },
+    {
+      accessor: 'nida',
+      header: 'NIDA number',
+      render: (a) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs text-gray-700">{a.nida}</span>
+          {a.nidaVerified !== null && (
+            <Badge variant="light" color={a.nidaVerified ? 'green' : 'gray'} radius="sm" size="xs">
+              {a.nidaVerified ? 'Verified' : 'Not verified'}
+            </Badge>
+          )}
+        </div>
+      ),
+      exportValue: (a) => `${a.nida}${a.nidaVerified === null ? '' : a.nidaVerified ? ' (verified)' : ' (not verified)'}`,
+    },
     {
       accessor: 'phone',
       header: 'Documents',
       sortable: false,
-      render: () => (
-        <div className="flex items-center gap-3 text-xs text-gray-600">
-          <span className="whitespace-nowrap">
-            <AppIcon name="file-text" className="mr-1 text-gray-400" />
-            NIDA
-          </span>
-          <span className="whitespace-nowrap">
-            <AppIcon name="file-image" className="mr-1 text-gray-400" />
-            ID scan
-          </span>
-        </div>
-      ),
-      exportValue: () => 'NIDA, ID scan',
+      render: (a) =>
+        a.docs.length === 0 ? (
+          <span className="text-xs text-red-500">None on file</span>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+            {a.docs.map((d, i) => (
+              <span key={`${d.name}-${i}`} className="whitespace-nowrap">
+                <AppIcon name={isImage(d.fileName) ? 'file-image' : 'file-text'} className="mr-1 text-gray-400" />
+                {d.name}
+              </span>
+            ))}
+          </div>
+        ),
+      exportValue: (a) => a.docs.map((d) => d.name).join(', ') || 'None',
     },
     {
       accessor: 'isReturning',

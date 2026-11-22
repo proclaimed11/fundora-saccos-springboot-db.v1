@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useQueries, useMutation } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { ApiError, api } from './client'
 import { queryClient } from './queryClient'
@@ -250,6 +250,7 @@ const identificationRowSchema = z.object({
   applicant: z.object({ id: z.number() }).nullish(),
   idType: z.string().nullish(),
   idNumber: z.string().nullish(),
+  documentPath: z.string().nullish(),
   verified: z.boolean().nullish(),
   verifiedAt: z.string().nullish(),
   verifiedBy: z.number().nullish(),
@@ -268,6 +269,8 @@ export type Identification = {
   /** NIDA or TIN, upper-cased */
   type: string
   number: string
+  /** where the scanned NIDA/TIN file is stored on the backend, e.g. /uploads/nida-123.pdf */
+  documentPath: string | null
   verified: boolean
   /** the user id from the table, the name is looked up from the users list */
   verifiedBy: number | null
@@ -279,6 +282,7 @@ const toIdentification = (r: IdentificationRow): Identification => ({
   applicantId: r.applicantId ?? r.applicant?.id ?? 0,
   type: (r.idType ?? '').toUpperCase(),
   number: r.idNumber ?? '',
+  documentPath: r.documentPath || null,
   verified: r.verified ?? false,
   verifiedBy: r.verifiedBy ?? null,
   verifiedAt: r.verifiedAt ? r.verifiedAt.slice(0, 10) : null,
@@ -377,6 +381,34 @@ export async function getApplicantHistory(id: number): Promise<StatusHistory[]> 
 
 export const useApplicantHistory = (id: number) =>
   useQuery({ queryKey: applicantKeys.history(id), queryFn: () => getApplicantHistory(id) })
+
+// when each applicant reached Pending KYC (their code was verified), yyyy-MM-dd, from their status history.
+// One request per applicant, shared with the profile timeline's cache. Missing while loading or when not found.
+export function usePendingKycSince(ids: number[]): Record<number, string> {
+  return useQueries({
+    queries: ids.map((id) => ({ queryKey: applicantKeys.history(id), queryFn: () => getApplicantHistory(id) })),
+    combine: (results) => {
+      const since: Record<number, string> = {}
+      results.forEach((r, i) => {
+        const latest = (r.data ?? [])
+          .filter((h) => h.changedAt && normalizeStatus(h.newStatus) === 'PENDING_KYC')
+          .map((h) => h.changedAt as string)
+          .sort()
+          .pop()
+        if (latest) since[ids[i]] = latest.slice(0, 10)
+      })
+      return since
+    },
+  })
+}
+
+/* ---------- files: the backend serves stored files at their path ---------- */
+
+const FILE_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? ''
+
+// /uploads/id-scan-1.jpg -> <backend address>/uploads/id-scan-1.jpg; a full link is kept as it is
+export const fileUrl = (path: string) =>
+  /^https?:\/\//i.test(path) ? path : `${FILE_BASE}${path.startsWith('/') ? '' : '/'}${path}`
 
 /* ---------- edit: PUT /api/applicants/{id} ---------- */
 

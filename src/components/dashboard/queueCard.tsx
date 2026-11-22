@@ -84,7 +84,7 @@ export function QueueCard({ title, subtitle, notificationCount, tabs }: QueueCar
 
       <CustomTabs
         ariaLabel="Queue categories"
-        className="w-full px-3 pb-1 pt-2"
+        className="w-fit px-3 pb-1 pt-2"
         tabs={tabs.map((tab) => ({
           value: tab.value,
           label: tab.label,

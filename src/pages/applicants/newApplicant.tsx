@@ -34,6 +34,8 @@ import {
 } from '../../api/applicants'
 import { AFRICAN_NATIONALITIES } from './africanCountries'
 import { STATUS, registrationStepsDone, type Applicant, type ApplicantStatus } from './applicantsData'
+import { KycDecisionDialog } from './applicantKYCDecisionDialog'
+import { usePageAccess } from '../auth/usePageAccess'
 
 type FormValues = {
   firstName: string
@@ -429,6 +431,12 @@ export function NewApplicantPage() {
   // one flag for every call, so a button cannot be pressed twice
   const [loading, setLoading] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
+
+  // once the code is verified the applicant is pending KYC, so a reviewer can decide straight from here.
+  // GET /api/applicants/{id} gives the full record the decision dialog shows.
+  const { canApprove: canReviewKyc } = usePageAccess('applicants', 'kyc-review')
+  const registered = useApplicant(verified && applicantId ? String(applicantId) : undefined)
+  const [reviewingKyc, setReviewingKyc] = useState(false)
 
   // continue an unfinished registration: fill the form and jump to the first unsaved step
   useEffect(() => {
@@ -982,6 +990,19 @@ export function NewApplicantPage() {
                     <Button type="button" color="brand" onClick={startOver}>
                       Register another
                     </Button>
+                    {canReviewKyc && (
+                      <Button
+                        type="button"
+                        color="brand"
+                        variant="light"
+                        leftSection={<AppIcon name="contact-round" />}
+                        loading={registered.isLoading}
+                        disabled={registered.data?.status !== 'PENDING_KYC'}
+                        onClick={() => setReviewingKyc(true)}
+                      >
+                        Review KYC
+                      </Button>
+                    )}
                   </Group>
                 </>
               )}
@@ -1046,6 +1067,13 @@ export function NewApplicantPage() {
           setExitError(null)
         }}
         onConfirm={leave}
+      />
+
+      {/* POST /api/onboarding/kyc/decision, then the profile shows the result and the KYC history */}
+      <KycDecisionDialog
+        applicant={reviewingKyc ? (registered.data ?? null) : null}
+        onClose={() => setReviewingKyc(false)}
+        onDecided={(a) => navigate(`/applicants/${a.id}`, { replace: true })}
       />
     </DashboardLayout>
   )

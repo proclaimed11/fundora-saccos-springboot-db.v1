@@ -1,4 +1,4 @@
-import { AppIcon, stepIcon  } from '../../components/appIcon'
+import { AppIcon, stepIcon } from '../../components/appIcon'
 import { useState } from 'react'
 import { DocumentViewer, type ViewableDocument } from '../../components/documentViewer'
 import { defaultContent, printContract, valuesFor } from './contractTemplate'
@@ -6,17 +6,12 @@ import { Alert, Badge, Button, Stepper, Text } from '@mantine/core'
 import dayjs from 'dayjs'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
 import { formatTzs } from '../../utils/format'
+import { fileUrl } from '../../api/applicants'
+import type { WfContract, WfCredit, WfLoan } from '../../api/loanApplications'
 import {
-  LOANS,
   RANK,
   STATUS,
-  activityFor,
-  approvalsFor,
-  collateralsFor,
-  contractFor,
-  creditFor,
   estimateInstallment,
-  guarantorsFor,
   methodLabel,
   scheduleFor,
   totalRepayable,
@@ -26,13 +21,54 @@ import {
 } from './loanApplicationsData'
 import { useNavigate } from 'react-router-dom'
 
+/* ---------- the application as the page shows it, built from the API by the page ---------- */
+
+export type ViewGuarantor = { id: number; name: string; phone: string; idNumber: string; address: string; verified: boolean }
+
+export type ViewCollateral = {
+  id: number
+  type: string
+  description: string
+  value: number
+  verified: boolean
+  documentNumber: string
+  documentFileName: string
+  documentPath: string
+}
+
+export type ViewLevel = {
+  levelNo: number
+  levelName: string
+  role: string
+  decision: 'PENDING' | 'APPROVED' | 'REJECTED'
+  by: string
+  comments: string
+  date: string
+}
+
+export type ViewHistory = { from: string; to: string; date: string; by: string; remarks: string }
+
+export type ApplicationView = {
+  application: LoanApplication
+  guarantors: ViewGuarantor[]
+  collaterals: ViewCollateral[]
+  credit: (WfCredit & { assessedByName: string }) | null
+  levels: ViewLevel[]
+  contract: WfContract | null
+  loan: WfLoan | null
+  /** oldest first */
+  history: ViewHistory[]
+  /** set when the workflow (credit, approvals, contract, loan, history) could not be loaded */
+  workflowError: string | null
+}
+
 /* ---------- small helpers ---------- */
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4 border-b border-gray-100 py-2.5 text-sm">
       <span className="text-gray-500">{label}</span>
-      <span className="text-right font-medium text-gray-800">{value}</span>
+      <span className="text-right font-medium text-gray-800">{value || '-'}</span>
     </div>
   )
 }
@@ -53,6 +89,15 @@ function Empty({ children }: { children: string }) {
   )
 }
 
+// shown in place of a part that comes from the workflow when that call failed
+function WorkflowMissing({ error }: { error: string }) {
+  return (
+    <Alert color="yellow" variant="light" icon={<AppIcon name="triangle-alert" />}>
+      <Text size="sm">This part could not be loaded. {error}</Text>
+    </Alert>
+  )
+}
+
 const PILL_COLOR: Record<string, string> = {
   VERIFIED: 'green',
   APPROVED: 'green',
@@ -65,31 +110,67 @@ const PILL_COLOR: Record<string, string> = {
   SIGNED: 'teal',
 }
 
+const words = (v: string) => {
+  const s = v.replace(/_/g, ' ').toLowerCase()
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '-'
+}
+
 function Pill({ value }: { value: string }) {
   return (
     <Badge variant="light" color={PILL_COLOR[value] ?? 'gray'} radius="sm" size="sm">
-      {value.charAt(0) + value.slice(1).toLowerCase()}
+      {words(value)}
     </Badge>
   )
 }
 
-function Timeline({ application, limit }: { application: LoanApplication; limit?: number }) {
-  const events = activityFor(application).slice(0, limit)
+// an application status from the API, with its label and colour when the app knows it
+function StatusBadge({ value, size = 'sm', outline = false }: { value: string; size?: 'xs' | 'sm'; outline?: boolean }) {
+  const known = STATUS[value as ApplicationStatus]
+  return (
+    <Badge variant={outline ? 'outline' : 'light'} color={outline ? 'gray' : (known?.color ?? 'gray')} radius="sm" size={size}>
+      {known?.label ?? words(value)}
+    </Badge>
+  )
+}
+
+const dateText = (v: string) => (v ? dayjs(v).format('MMM D, YYYY') : '-')
+
+const HISTORY_ICON: Record<string, string> = {
+  DRAFT: 'pen-line',
+  SUBMITTED: 'file-text',
+  CREDIT_APPROVED: 'calculator',
+  PENDING_APPROVAL: 'hourglass',
+  APPROVED: 'square-check',
+  REJECTED: 'circle-x',
+  CANCELLED: 'circle-x',
+  CONTRACT_GENERATED: 'pen-line',
+  CONTRACT_SIGNED: 'file-check',
+  LOAN_CREATED: 'banknote',
+}
+
+// newest first
+function Timeline({ view, limit }: { view: ApplicationView; limit?: number }) {
+  if (view.workflowError) return <WorkflowMissing error={view.workflowError} />
+  const events = [...view.history].reverse().slice(0, limit)
+  if (events.length === 0) return <Empty>No activity has been recorded yet.</Empty>
   return (
     <ul className="space-y-4">
-      {events.map((e) => (
-        <li key={e.title} className="flex gap-3">
+      {events.map((e, i) => (
+        <li key={`${e.to}-${e.date}-${i}`} className="flex gap-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500">
-            <AppIcon name={e.icon} />
+            <AppIcon name={HISTORY_ICON[e.to] ?? 'info'} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex justify-between gap-3">
-              <span className="text-sm font-medium text-gray-800">{e.title}</span>
-              <span className="shrink-0 text-xs text-gray-400">
-                {dayjs(e.date).format('MMM D, YYYY')}
+              <span className="text-sm font-medium text-gray-800">
+                {STATUS[e.to as ApplicationStatus]?.label ?? words(e.to)}
               </span>
+              <span className="shrink-0 text-xs text-gray-400">{dateText(e.date)}</span>
             </div>
-            <div className="text-xs text-gray-500">{e.detail}</div>
+            <div className="text-xs text-gray-500">
+              {e.by ? `By ${e.by}` : 'By the system'}
+              {e.remarks ? ` · ${e.remarks}` : ''}
+            </div>
           </div>
         </li>
       ))}
@@ -99,20 +180,21 @@ function Timeline({ application, limit }: { application: LoanApplication; limit?
 
 /* ---------- tabs ---------- */
 
-export function OverviewTab({ application }: { application: LoanApplication }) {
+export function OverviewTab({ view }: { view: ApplicationView }) {
+  const a = view.application
   const tiles = [
-    { label: 'Requested amount', value: formatTzs(application.requestedAmount) },
-    { label: 'Est. monthly installment', value: formatTzs(Math.round(estimateInstallment(application))) },
-    { label: 'Est. total repayable', value: formatTzs(Math.round(totalRepayable(application))) },
+    { label: 'Requested amount', value: formatTzs(a.requestedAmount) },
+    { label: 'Est. monthly installment', value: formatTzs(Math.round(estimateInstallment(a))) },
+    { label: 'Est. total repayable', value: formatTzs(Math.round(totalRepayable(a))) },
   ]
 
   return (
     <div className="space-y-6">
       <Stepper
-        active={STATUS[application.status].step}
+        active={STATUS[a.status].step}
         size="xs"
-        color={application.status === 'REJECTED' ? 'red' : 'brand'}
-        className={`app-stepper${application.status === 'REJECTED' ? ' app-stepper-danger' : ''}`}
+        color={a.status === 'REJECTED' ? 'red' : 'brand'}
+        className={`app-stepper${a.status === 'REJECTED' ? ' app-stepper-danger' : ''}`}
       >
         <Stepper.Step label="Submitted" {...stepIcon('file-text')} />
         <Stepper.Step label="Credit" {...stepIcon('calculator')} />
@@ -133,15 +215,15 @@ export function OverviewTab({ application }: { application: LoanApplication }) {
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
           <SectionTitle>Loan terms</SectionTitle>
-          <Field label="Interest method" value={methodLabel(application.interestMethod)} />
-          <Field label="Interest rate" value={`${application.interestRate}% per year`} />
-          <Field label="Tenure" value={`${application.tenure} months`} />
-          <Field label="Penalty rate" value={`${application.penaltyRate}%`} />
+          <Field label="Interest method" value={methodLabel(a.interestMethod)} />
+          <Field label="Interest rate" value={`${a.interestRate}% per year`} />
+          <Field label="Tenure" value={`${a.tenure} months`} />
+          <Field label="Penalty rate" value={`${a.penaltyRate}%`} />
         </div>
         <div>
           <SectionTitle>Recent activity</SectionTitle>
           <div className="mt-3">
-            <Timeline application={application} limit={3} />
+            <Timeline view={view} limit={3} />
           </div>
         </div>
       </div>
@@ -149,100 +231,69 @@ export function OverviewTab({ application }: { application: LoanApplication }) {
   )
 }
 
-type RequirementsProps = {
-  application: LoanApplication
-  /** ids verified in this session */
-  verifiedGuarantors?: number[]
-  verifiedCollaterals?: number[]
-  onVerifyGuarantor?: (id: number) => void
-  onVerifyCollateral?: (id: number) => void
-}
-
-export function RequirementsTab({
-  application,
-  verifiedGuarantors = [],
-  verifiedCollaterals = [],
-  onVerifyGuarantor,
-  onVerifyCollateral,
-}: RequirementsProps) {
+export function RequirementsTab({ view }: { view: ApplicationView }) {
   const [viewing, setViewing] = useState<ViewableDocument | null>(null)
-  const guarantors = guarantorsFor(application)
-  const collaterals = collateralsFor(application)
-  const credit = creditFor(application)
-  const installment = Math.round(estimateInstallment(application))
+  const a = view.application
+  const { guarantors, collaterals, credit } = view
+  const installment = Math.round(estimateInstallment(a))
   const totalValue = collaterals.reduce((sum, c) => sum + c.value, 0)
-  const shortfall = credit ? Math.max(0, installment - credit.cashFlow) : 0
-  // checks can only be done after submission and before the credit assessment
-  const canVerify = application.status === 'SUBMITTED'
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <div className="space-y-6">
         <div>
           <SectionTitle>{guarantors.length > 1 ? `Guarantors (${guarantors.length})` : 'Guarantors'}</SectionTitle>
-          {!application.guarantorRequired ? (
+          {!a.guarantorRequired ? (
             <Empty>A guarantor is not required for this application.</Empty>
           ) : guarantors.length === 0 ? (
-            <Empty>No guarantor has been added yet.</Empty>
+            <Empty>No guarantor has been added.</Empty>
           ) : (
             <ul className="mt-2 space-y-2">
-              {guarantors.map((g) => {
-                const status = verifiedGuarantors.includes(g.id) ? 'VERIFIED' : g.status
-                return (
-                  <li key={g.id} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5">
-                    <AppIcon name="user-round" className="w-6 text-center text-xl text-gray-400" size={24} />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-800">{g.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {g.relationship} · {g.phone}
-                      </div>
+              {guarantors.map((g) => (
+                <li key={g.id} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5">
+                  <AppIcon name="user-round" className="w-6 text-center text-xl text-gray-400" size={24} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-800">{g.name || '-'}</div>
+                    <div className="truncate text-xs text-gray-500">
+                      {[g.phone, g.idNumber && `NIDA ${g.idNumber}`, g.address].filter(Boolean).join(' · ') || '-'}
                     </div>
-                    {canVerify && status === 'PENDING' && onVerifyGuarantor && (
-                      <Button size="compact-xs" variant="light" onClick={() => onVerifyGuarantor(g.id)}>
-                        Verify
-                      </Button>
-                    )}
-                    <Pill value={status} />
-                  </li>
-                )
-              })}
+                  </div>
+                  <Pill value={g.verified ? 'VERIFIED' : 'PENDING'} />
+                </li>
+              ))}
             </ul>
           )}
         </div>
 
         <div>
           <SectionTitle>{collaterals.length > 1 ? `Collateral (${collaterals.length} assets)` : 'Collateral'}</SectionTitle>
-          {!application.collateralRequired ? (
+          {!a.collateralRequired ? (
             <Empty>Collateral is not required for this application.</Empty>
           ) : collaterals.length === 0 ? (
-            <Empty>No collateral has been added yet.</Empty>
+            <Empty>No collateral has been added.</Empty>
           ) : (
             <>
               <ul className="mt-2 space-y-2">
-                {collaterals.map((c) => {
-                  const status = verifiedCollaterals.includes(c.id) ? 'VERIFIED' : c.status
-                  return (
-                    <li key={c.id} className="rounded-md border border-gray-200 px-3 py-2.5">
-                      <div className="flex items-center gap-3">
-                        <AppIcon name="shield" className="w-6 text-center text-xl text-gray-400" size={24} />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-gray-800">{c.type}</div>
-                          <div className="truncate text-xs text-gray-500">
-                            {c.description} · {formatTzs(c.value)}
-                          </div>
+                {collaterals.map((c) => (
+                  <li key={c.id} className="rounded-md border border-gray-200 px-3 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <AppIcon name="shield" className="w-6 text-center text-xl text-gray-400" size={24} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-gray-800">{c.type || '-'}</div>
+                        <div className="truncate text-xs text-gray-500">
+                          {c.description || '-'} · {formatTzs(c.value)}
                         </div>
-                        {canVerify && status === 'PENDING' && onVerifyCollateral && (
-                          <Button size="compact-xs" variant="light" onClick={() => onVerifyCollateral(c.id)}>
-                            Verify
-                          </Button>
-                        )}
-                        <Pill value={status} />
                       </div>
-                      <div className="mt-2 flex items-center gap-2 border-t border-gray-100 pt-2 text-xs">
-                        <AppIcon name="file-text" className={c.document ? 'text-gray-400' : 'text-gray-300'} />
-                        {c.document ? (
-                          <>
-                            <span className="min-w-0 flex-1 truncate text-gray-600">{c.document}</span>
+                      <Pill value={c.verified ? 'VERIFIED' : 'PENDING'} />
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 border-t border-gray-100 pt-2 text-xs">
+                      <AppIcon name="file-text" className={c.documentPath ? 'text-gray-400' : 'text-gray-300'} />
+                      {c.documentPath || c.documentNumber ? (
+                        <>
+                          <span className="min-w-0 flex-1 truncate text-gray-600">
+                            {[c.documentFileName, c.documentNumber && `No. ${c.documentNumber}`].filter(Boolean).join(' · ')}
+                          </span>
+                          {c.documentPath && (
                             <Button
                               size="compact-xs"
                               variant="subtle"
@@ -250,30 +301,33 @@ export function RequirementsTab({
                               onClick={() =>
                                 setViewing({
                                   title: `${c.type} document`,
-                                  fileName: c.document!,
-                                  subtitle: application.applicationNo,
+                                  fileName: c.documentFileName,
+                                  subtitle: a.applicationNo,
                                   notes: c.description,
+                                  url: fileUrl(c.documentPath),
                                 })
                               }
                             >
                               View
                             </Button>
-                          </>
-                        ) : (
-                          <span className="text-gray-400">No document uploaded</span>
-                        )}
-                      </div>
-                    </li>
-                  )
-                })}
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">No document recorded</span>
+                      )}
+                    </div>
+                  </li>
+                ))}
               </ul>
               <div className="mt-2 flex justify-between rounded-md bg-gray-50 px-3 py-2 text-sm">
                 <span className="text-gray-500">Total value</span>
                 <span className="font-medium text-gray-800">
                   {formatTzs(totalValue)}{' '}
-                  <span className="text-xs font-normal text-gray-500">
-                    ({Math.round((totalValue / application.requestedAmount) * 100)}% of the loan)
-                  </span>
+                  {a.requestedAmount > 0 && (
+                    <span className="text-xs font-normal text-gray-500">
+                      ({Math.round((totalValue / a.requestedAmount) * 100)}% of the loan)
+                    </span>
+                  )}
                 </span>
               </div>
             </>
@@ -283,43 +337,41 @@ export function RequirementsTab({
 
       <div>
         <SectionTitle>Credit assessment</SectionTitle>
-        {!application.creditAssessmentRequired ? (
-          <Empty>Credit assessment is switched off for this application.</Empty>
+        {view.workflowError ? (
+          <WorkflowMissing error={view.workflowError} />
         ) : !credit ? (
           <Empty>
-            {canVerify
-              ? 'The credit assessment has not been run yet. Use the button at the top of the page once everything is verified.'
-              : 'The credit assessment has not been run yet.'}
+            {a.creditAssessmentRequired
+              ? 'The credit assessment has not run yet.'
+              : 'Credit assessment is switched off for this application.'}
           </Empty>
         ) : (
           <div className="space-y-3">
             {credit.decision === 'REJECT' && (
-              <Alert
-                color="red"
-                variant="light"
-                title="Credit assessment failed"
-                icon={<AppIcon name="circle-x" />}
-              >
-                <Text size="sm">
-                  {shortfall > 0
-                    ? `Monthly cash flow of ${formatTzs(credit.cashFlow)} does not cover the estimated installment of ${formatTzs(installment)}. It is short by ${formatTzs(shortfall)}.`
-                    : credit.notes}
-                </Text>
-                <Text size="sm" mt={6}>
-                  The application was rejected and did not go to approval.
-                </Text>
+              <Alert color="red" variant="light" title="Credit assessment failed" icon={<AppIcon name="circle-x" />}>
+                <Text size="sm">The application was rejected and did not go to approval.</Text>
               </Alert>
             )}
             <div>
               <div className="flex items-center justify-between border-b border-gray-100 py-2.5 text-sm">
                 <span className="text-gray-500">Decision</span>
-                <Pill value={credit.decision} />
+                {credit.decision ? <Pill value={credit.decision} /> : <span className="text-gray-800">-</span>}
               </div>
-              <Field label="Monthly income" value={formatTzs(credit.income)} />
-              <Field label="Monthly expenses" value={formatTzs(credit.expenses)} />
-              <Field label="Cash flow" value={formatTzs(credit.cashFlow)} />
-              <Field label="Est. monthly installment" value={formatTzs(installment)} />
-              <Field label="Assessed by" value={credit.assessedBy} />
+              {a.creditAssessmentRequired && (
+                <>
+                  <Field label="Monthly income" value={credit.income === null ? '' : formatTzs(credit.income)} />
+                  <Field label="Monthly expenses" value={credit.expenses === null ? '' : formatTzs(credit.expenses)} />
+                  <Field label="Cash flow" value={credit.cashFlow === null ? '' : formatTzs(credit.cashFlow)} />
+                  <Field
+                    label="Existing debt"
+                    value={credit.totalExistingDebt === null ? '' : formatTzs(credit.totalExistingDebt)}
+                  />
+                  <Field label="Pending payments" value={credit.hasPendingPayments ? 'Yes' : 'No'} />
+                  <Field label="Est. monthly installment" value={formatTzs(installment)} />
+                </>
+              )}
+              <Field label="Assessed by" value={credit.assessedByName} />
+              <Field label="Assessed on" value={dateText(credit.assessedAt)} />
               <Field label="Notes" value={credit.notes} />
             </div>
           </div>
@@ -331,15 +383,13 @@ export function RequirementsTab({
   )
 }
 
-export function ApprovalsTab({ application }: { application: LoanApplication }) {
-  const navigate = useNavigate()
-  const approvals = approvalsFor(application)
+// only applications that reached the approval stage appear on the Approvals page
+const reachedApproval = (s: ApplicationStatus) => s !== 'REJECTED' && s !== 'CANCELLED' && RANK[s] >= 2
 
-  // only applications that reached the approval stage appear on the Approvals page
-  const inApprovalStage =
-    application.status === 'CREDIT_APPROVED' ||
-    application.status === 'PENDING_APPROVAL' ||
-    (application.status !== 'REJECTED' && RANK[application.status] >= 3)
+export function ApprovalsTab({ view }: { view: ApplicationView }) {
+  const navigate = useNavigate()
+  const a = view.application
+  const inApprovalStage = reachedApproval(a.status)
 
   return (
     <div>
@@ -355,7 +405,7 @@ export function ApprovalsTab({ application }: { application: LoanApplication }) 
             size="xs"
             variant="default"
             leftSection={<AppIcon name="external-link" />}
-            onClick={() => navigate(`/loan-approvals?review=${application.id}`)}
+            onClick={() => navigate(`/loan-approvals?review=${a.id}`)}
           >
             Open in Approvals
           </Button>
@@ -366,45 +416,47 @@ export function ApprovalsTab({ application }: { application: LoanApplication }) 
         <p className="mb-3 text-xs text-gray-400">This application has not reached the approval stage yet.</p>
       )}
 
-      <ul className="space-y-2">
-        {approvals.map((a) => (
-          <li key={a.levelNo} className="flex items-start gap-3 rounded-md border border-gray-200 px-3 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-medium text-gray-600">
-              {a.levelNo}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-gray-800">{a.levelName}</div>
-              <div className="text-xs text-gray-500">Required role: {a.role}</div>
-              {a.by && (
-                <div className="mt-1 text-xs text-gray-500">
-                  {a.by}
-                  {a.comments ? ` · "${a.comments}"` : ''}
-                </div>
-              )}
-            </div>
-            <Pill value={a.decision} />
-          </li>
-        ))}
-      </ul>
+      {view.workflowError ? (
+        <WorkflowMissing error={view.workflowError} />
+      ) : view.levels.length === 0 ? (
+        <Empty>No approval levels are set up. They are managed on the Approval hierarchy page.</Empty>
+      ) : (
+        <ul className="space-y-2">
+          {view.levels.map((l) => (
+            <li key={l.levelNo} className="flex items-start gap-3 rounded-md border border-gray-200 px-3 py-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-medium text-gray-600">
+                {l.levelNo}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-gray-800">{l.levelName}</div>
+                <div className="text-xs text-gray-500">Required role: {l.role || '-'}</div>
+                {l.by && (
+                  <div className="mt-1 text-xs text-gray-500">
+                    {l.by}
+                    {l.date ? ` · ${dateText(l.date)}` : ''}
+                    {l.comments ? ` · "${l.comments}"` : ''}
+                  </div>
+                )}
+              </div>
+              <Pill value={l.decision} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
 
-export function ContractTab({
-  application,
-  onUploadSigned,
-}: {
-  application: LoanApplication
-  onUploadSigned?: () => void
-}) {
-  const [viewing, setViewing] = useState<ViewableDocument | null>(null)
-  const contract = contractFor(application)
+export function ContractTab({ view }: { view: ApplicationView }) {
+  const a = view.application
+  const contract = view.contract
 
+  if (view.workflowError) return <WorkflowMissing error={view.workflowError} />
   if (!contract) {
     return (
       <Empty>
-        {application.status === 'APPROVED'
-          ? 'The application is approved. Use "Generate contract" to create the contract.'
+        {a.status === 'APPROVED'
+          ? 'The application is approved. The contract is generated from the Contracts page.'
           : 'A contract is created once the application is approved.'}
       </Empty>
     )
@@ -412,24 +464,25 @@ export function ContractTab({
 
   const print = () =>
     printContract(
-      defaultContent(application),
-      valuesFor(application),
+      defaultContent(a),
+      valuesFor(a),
       contract.contractNo,
-      dayjs(contract.generated).format('MMMM D, YYYY'),
+      dayjs(contract.generatedAt || undefined).format('MMMM D, YYYY'),
     )
-  const signedOn = contract.signed ? dayjs(contract.signed).format('MMM D, YYYY') : ''
 
   // 3 means every contract step is done
-  const step = { GENERATED: 1, SENT: 2, SIGNED: 3 }[contract.status]
+  const step = ({ GENERATED: 1, SENT: 2, SIGNED: 3 } as Record<string, number>)[contract.status] ?? 0
 
-  const hint = {
-    GENERATED: 'Next step: send the contract to the borrower by email.',
-    SENT: 'Waiting for the borrower to print, sign and return it. Then upload the signed copy.',
-    SIGNED:
-      application.status === 'LOAN_CREATED'
-        ? 'The loan has been created.'
-        : 'The signed copy is on file. Next step: create the loan.',
-  }[contract.status]
+  const hint =
+    contract.status === 'GENERATED'
+      ? 'Next step: send the contract to the borrower by email.'
+      : contract.status === 'SENT'
+        ? 'Waiting for the borrower to print, sign and return it. Then upload the signed copy.'
+        : contract.status === 'SIGNED'
+          ? a.status === 'LOAN_CREATED'
+            ? 'The loan has been created.'
+            : 'The signed copy is on file. Next step: create the loan.'
+          : ''
 
   return (
     <div className="space-y-6">
@@ -439,9 +492,11 @@ export function ContractTab({
         <Stepper.Step label="Signed" />
       </Stepper>
 
-      <Alert color="blue" variant="light" icon={<AppIcon name="info" />}>
-        <Text size="sm">{hint}</Text>
-      </Alert>
+      {hint && (
+        <Alert color="blue" variant="light" icon={<AppIcon name="info" />}>
+          <Text size="sm">{hint}</Text>
+        </Alert>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
@@ -451,16 +506,10 @@ export function ContractTab({
             <Pill value={contract.status} />
           </div>
           <Field label="Contract number" value={contract.contractNo} />
-          <Field label="Principal" value={formatTzs(application.requestedAmount)} />
-          <Field label="Generated" value={dayjs(contract.generated).format('MMM D, YYYY')} />
-          <Field
-            label="Sent to borrower"
-            value={contract.sent ? dayjs(contract.sent).format('MMM D, YYYY') : 'Not yet'}
-          />
-          <Field
-            label="Signed"
-            value={contract.signed ? dayjs(contract.signed).format('MMM D, YYYY') : 'Not yet'}
-          />
+          <Field label="Principal" value={formatTzs(contract.finalAmount ?? a.requestedAmount)} />
+          <Field label="Generated" value={dateText(contract.generatedAt)} />
+          <Field label="Sent to borrower" value={contract.sentAt ? dateText(contract.sentAt) : 'Not yet'} />
+          <Field label="Signed" value={contract.signedAt ? dateText(contract.signedAt) : 'Not yet'} />
         </div>
 
         <div>
@@ -470,62 +519,25 @@ export function ContractTab({
               <AppIcon name="file-text" className="text-xl text-gray-400" size={20} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-gray-800">Loan contract</div>
-                <div className="truncate text-xs text-gray-500">{contract.contractNo}.pdf</div>
+                <div className="truncate text-xs text-gray-500">{contract.contractNo}</div>
               </div>
-              <Button
-                size="xs"
-                variant="subtle"
-                color="brand"
-                leftSection={<AppIcon name="printer" />}
-                onClick={print}
-              >
+              <Button size="xs" variant="subtle" color="brand" leftSection={<AppIcon name="printer" />} onClick={print}>
                 Print
               </Button>
             </li>
-
-            {contract.signed ? (
-              <li className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5">
-                <AppIcon name="file-image" className="text-xl text-gray-400" size={20} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-gray-800">Signed copy</div>
-                  <div className="truncate text-xs text-gray-500">{contract.contractNo}-signed.pdf</div>
-                </div>
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  color="brand"
-                  onClick={() =>
-                    setViewing({
-                      title: 'Signed copy',
-                      fileName: `${contract.contractNo}-signed.pdf`,
-                      subtitle: `Signed on ${signedOn}`,
-                    })
-                  }
-                >
-                  View
-                </Button>
-              </li>
-            ) : (
-              <li className="flex items-center gap-3 rounded-md border border-dashed border-gray-200 px-3 py-2.5">
-                <AppIcon name="file-image" className="text-xl text-gray-300" size={20} />
-                <div className="min-w-0 flex-1 text-xs text-gray-500">Signed copy not uploaded yet</div>
-                {contract.status === 'SENT' && (
-                  <Button
-                    size="compact-xs"
-                    leftSection={<AppIcon name="upload" />}
-                    onClick={onUploadSigned}
-                  >
-                    Upload signed contract
-                  </Button>
-                )}
-              </li>
-            )}
+            <li
+              className={`flex items-center gap-3 rounded-md border px-3 py-2.5 ${
+                contract.signedAt ? 'border-gray-200' : 'border-dashed border-gray-200'
+              }`}
+            >
+              <AppIcon name="file-image" className={`text-xl ${contract.signedAt ? 'text-gray-400' : 'text-gray-300'}`} size={20} />
+              <div className="min-w-0 flex-1 text-xs text-gray-500">
+                {contract.signedAt ? `Signed copy on file since ${dateText(contract.signedAt)}` : 'Signed copy not uploaded yet'}
+              </div>
+            </li>
           </ul>
         </div>
       </div>
-
-      {/* Document viewer added here */}
-      <DocumentViewer document={viewing} onClose={() => setViewing(null)} />
     </div>
   )
 }
@@ -539,73 +551,31 @@ const scheduleColumns: CustomTableColumn<InstallmentRow>[] = [
   { accessor: 'balance', header: 'Balance', render: (r) => <Text size="sm">{formatTzs(r.balance)}</Text>, exportValue: (r) => r.balance },
 ]
 
-export function ScheduleTab({ application }: { application: LoanApplication }) {
+export function ScheduleTab({ view }: { view: ApplicationView }) {
+  const a = view.application
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        This is an estimate from the requested terms. The real schedule is generated when the loan is
-        disbursed.
+        This is an estimate from the requested terms. The real schedule is generated when the loan is disbursed.
       </p>
       <CustomTable<InstallmentRow>
         size="sm"
-        data={scheduleFor(application)}
+        data={scheduleFor(a)}
         columns={scheduleColumns}
         pagination={false}
         defaultSort={null}
         exportCsv
-        exportFileName={`${application.applicationNo}-schedule`}
+        exportFileName={`${a.applicationNo}-schedule`}
       />
     </div>
   )
 }
 
-export function ActivityTab({ application }: { application: LoanApplication }) {
-  return <Timeline application={application} />
+export function ActivityTab({ view }: { view: ApplicationView }) {
+  return <Timeline view={view} />
 }
 
 /* ---------- workflow ---------- */
-
-// the path an application takes, in order (the API keeps one status history row per move)
-const WORKFLOW_PATH: { status: ApplicationStatus; offset: number; by: string }[] = [
-  { status: 'SUBMITTED', offset: 0, by: 'Loan officer' },
-  { status: 'CREDIT_APPROVED', offset: 1, by: 'Credit analyst' },
-  { status: 'PENDING_APPROVAL', offset: 1, by: 'System' },
-  { status: 'APPROVED', offset: 2, by: 'Approval committee' },
-  { status: 'CONTRACT_GENERATED', offset: 3, by: 'Loan officer' },
-  { status: 'CONTRACT_SIGNED', offset: 6, by: 'Loan officer' },
-  { status: 'LOAN_CREATED', offset: 7, by: 'Loan officer' },
-]
-
-type HistoryRow = { from: ApplicationStatus | null; to: ApplicationStatus; date: string; by: string }
-
-// SAMPLE ONLY: replaced by the statusHistory of GET /api/loan-origination/applications/{id}/workflow
-function historyFor(a: LoanApplication): HistoryRow[] {
-  const day = (n: number) => dayjs(a.created).add(n, 'day').format('YYYY-MM-DD')
-  const rows: HistoryRow[] = []
-  let previous: ApplicationStatus | null = null
-
-  const push = (to: ApplicationStatus, offset: number, by: string) => {
-    rows.push({ from: previous, to, date: day(offset), by })
-    previous = to
-  }
-
-  if (a.status === 'DRAFT') {
-    push('DRAFT', 0, a.loanOfficer)
-    return rows
-  }
-
-  const stopped = a.status === 'REJECTED' || a.status === 'CANCELLED'
-  const reached = stopped ? 0 : WORKFLOW_PATH.findIndex((p) => p.status === a.status)
-
-  WORKFLOW_PATH.slice(0, reached + 1).forEach((p) => push(p.status, p.offset, p.by))
-
-  if (stopped) {
-    // a stopped application only ever got as far as submission
-    if (rows.length === 0) push('SUBMITTED', 0, 'Loan officer')
-    push(a.status, 1, a.status === 'CANCELLED' ? 'Staff' : 'System')
-  }
-  return rows
-}
 
 function SummaryCard({
   icon,
@@ -635,74 +605,92 @@ function SummaryCard({
   )
 }
 
-type WorkflowProps = {
-  application: LoanApplication
-  /** ids verified in this session */
-  verifiedGuarantors?: number[]
-  verifiedCollaterals?: number[]
-}
-
-export function WorkflowTab({ application: a, verifiedGuarantors = [], verifiedCollaterals = [] }: WorkflowProps) {
+export function WorkflowTab({ view }: { view: ApplicationView }) {
   const navigate = useNavigate()
+  const a = view.application
+  const { guarantors, collaterals, credit, levels, contract, loan, history } = view
 
-  const guarantors = guarantorsFor(a)
-  const collaterals = collateralsFor(a)
-  const credit = creditFor(a)
-  const approvals = approvalsFor(a)
-  const contract = contractFor(a)
-  const loan = LOANS.find((l) => l.applicationId === a.id) ?? null
-  const history = historyFor(a)
-
-  const gVerified = guarantors.filter((g) => g.status === 'VERIFIED' || verifiedGuarantors.includes(g.id)).length
-  const cVerified = collaterals.filter((c) => c.status === 'VERIFIED' || verifiedCollaterals.includes(c.id)).length
-  const approved = approvals.filter((x) => x.decision === 'APPROVED').length
-  const rejectedLevel = approvals.find((x) => x.decision === 'REJECTED')
-  const inApproval = RANK[a.status] >= 2 && a.status !== 'REJECTED' && a.status !== 'CANCELLED'
+  const gVerified = guarantors.filter((g) => g.verified).length
+  const cVerified = collaterals.filter((c) => c.verified).length
+  const approved = levels.filter((x) => x.decision === 'APPROVED').length
+  const rejectedLevel = levels.find((x) => x.decision === 'REJECTED')
+  const inApproval = reachedApproval(a.status)
+  const missing = view.workflowError !== null
 
   return (
     <div className="space-y-6">
+      {view.workflowError && <WorkflowMissing error={view.workflowError} />}
+
       {/* one card per part of the origination */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <SummaryCard
           icon="user-round"
           title="Guarantors"
           value={a.guarantorRequired ? `${gVerified} of ${guarantors.length} verified` : 'Not required'}
-          sub={a.guarantorRequired ? (guarantors.map((g) => g.name).join(', ') || 'None added yet') : 'Skipped for this application'}
+          sub={a.guarantorRequired ? guarantors.map((g) => g.name).join(', ') || 'None added' : 'Skipped for this application'}
           tone={!a.guarantorRequired ? 'gray' : guarantors.length > 0 && gVerified === guarantors.length ? 'green' : 'yellow'}
         />
         <SummaryCard
           icon="shield"
           title="Collateral"
           value={a.collateralRequired ? `${cVerified} of ${collaterals.length} verified` : 'Not required'}
-          sub={a.collateralRequired ? (collaterals.map((c) => c.type).join(', ') || 'None added yet') : 'Skipped for this application'}
+          sub={a.collateralRequired ? collaterals.map((c) => c.type).join(', ') || 'None added' : 'Skipped for this application'}
           tone={!a.collateralRequired ? 'gray' : collaterals.length > 0 && cVerified === collaterals.length ? 'green' : 'yellow'}
         />
         <SummaryCard
           icon="calculator"
           title="Credit assessment"
-          value={!a.creditAssessmentRequired ? 'Switched off' : credit ? (credit.decision === 'APPROVE' ? 'Approved' : 'Denied') : 'Not run yet'}
-          sub={credit ? `Cash flow ${formatTzs(credit.cashFlow)} · by ${credit.assessedBy}` : 'Runs after every check is verified'}
-          tone={credit ? (credit.decision === 'APPROVE' ? 'green' : 'red') : 'gray'}
+          value={
+            missing
+              ? 'Unknown'
+              : credit
+                ? credit.decision === 'REJECT'
+                  ? 'Rejected'
+                  : credit.decision === 'APPROVE'
+                    ? 'Approved'
+                    : 'Recorded'
+                : a.creditAssessmentRequired
+                  ? 'Not run yet'
+                  : 'Switched off'
+          }
+          sub={
+            credit
+              ? `${credit.cashFlow !== null ? `Cash flow ${formatTzs(credit.cashFlow)}` : 'No figures'}${credit.assessedByName ? ` · by ${credit.assessedByName}` : ''}`
+              : 'Runs when the application is submitted'
+          }
+          tone={credit ? (credit.decision === 'REJECT' ? 'red' : 'green') : 'gray'}
         />
         <SummaryCard
           icon="square-check"
           title="Approvals"
-          value={rejectedLevel ? `Rejected at level ${rejectedLevel.levelNo}` : inApproval ? `${approved} of ${approvals.length} levels` : 'Not started'}
-          sub={rejectedLevel?.comments ?? approvals.map((x) => x.levelName).join(' → ')}
-          tone={rejectedLevel ? 'red' : approved === approvals.length ? 'green' : inApproval ? 'yellow' : 'gray'}
+          value={
+            missing
+              ? 'Unknown'
+              : rejectedLevel
+                ? `Rejected at level ${rejectedLevel.levelNo}`
+                : inApproval
+                  ? `${approved} of ${levels.length} levels`
+                  : 'Not started'
+          }
+          sub={rejectedLevel?.comments || levels.map((x) => x.levelName).join(' → ') || '-'}
+          tone={rejectedLevel ? 'red' : levels.length > 0 && approved === levels.length ? 'green' : inApproval ? 'yellow' : 'gray'}
         />
         <SummaryCard
           icon="pen-line"
           title="Contract"
-          value={contract ? contract.status.charAt(0) + contract.status.slice(1).toLowerCase() : 'Not created'}
+          value={missing ? 'Unknown' : contract ? words(contract.status) : 'Not created'}
           sub={contract ? contract.contractNo : 'Created after approval'}
           tone={contract ? (contract.status === 'SIGNED' ? 'green' : 'yellow') : 'gray'}
         />
         <SummaryCard
           icon="hand-coins"
           title="Loan"
-          value={loan ? loan.loanNo : 'Not created'}
-          sub={loan ? `${formatTzs(loan.principal)} · disbursed ${dayjs(loan.disbursed).format('MMM D, YYYY')}` : 'Created from the signed contract'}
+          value={missing ? 'Unknown' : loan ? loan.loanNo || `#${loan.id}` : 'Not created'}
+          sub={
+            loan
+              ? `${loan.principal !== null ? formatTzs(loan.principal) : ''}${loan.disbursementDate ? ` · disbursed ${dateText(loan.disbursementDate)}` : ` · ${words(loan.status)}`}`
+              : 'Created from the signed contract'
+          }
           tone={loan ? 'green' : 'gray'}
         />
       </div>
@@ -713,9 +701,7 @@ export function WorkflowTab({ application: a, verifiedGuarantors = [], verifiedC
           <SectionTitle>Application</SectionTitle>
           <div className="flex items-center justify-between border-b border-gray-100 py-2.5 text-sm">
             <span className="text-gray-500">Status</span>
-            <Badge variant="light" color={STATUS[a.status].color} radius="sm" size="sm">
-              {STATUS[a.status].label}
-            </Badge>
+            <StatusBadge value={a.status} />
           </div>
           <Field label="Application number" value={a.applicationNo} />
           <Field label="Applicant" value={a.applicantName} />
@@ -726,63 +712,78 @@ export function WorkflowTab({ application: a, verifiedGuarantors = [], verifiedC
 
         <div>
           <SectionTitle>Approval levels</SectionTitle>
-          <ul className="mt-1 space-y-2">
-            {approvals.map((x) => (
-              <li key={x.levelNo} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-medium text-gray-600">
-                  {x.levelNo}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-gray-800">{x.levelName}</div>
-                  <div className="truncate text-xs text-gray-500">{x.by ? `${x.by} · ` : ''}{x.role}</div>
-                </div>
-                <Pill value={x.decision} />
-              </li>
-            ))}
-          </ul>
+          {levels.length === 0 ? (
+            <Empty>No approval levels are set up.</Empty>
+          ) : (
+            <ul className="mt-1 space-y-2">
+              {levels.map((x) => (
+                <li key={x.levelNo} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-medium text-gray-600">
+                    {x.levelNo}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-800">{x.levelName}</div>
+                    <div className="truncate text-xs text-gray-500">
+                      {x.by ? `${x.by} · ` : ''}
+                      {x.role}
+                    </div>
+                  </div>
+                  <Pill value={x.decision} />
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
       {/* the full status history */}
-      <div>
-        <SectionTitle>{`Status history (${history.length})`}</SectionTitle>
-        <p className="mb-3 text-xs text-gray-500">Every move the application made, oldest first.</p>
-        <ol>
-          {history.map((h, i) => (
-            <li key={`${h.to}-${i}`} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] ${
-                    h.to === 'REJECTED' || h.to === 'CANCELLED' ? 'bg-red-100 text-red-600' : 'bg-brand text-white'
-                  }`}
-                >
-                  {h.to === 'REJECTED' || h.to === 'CANCELLED' ? <AppIcon name="x" /> : <AppIcon name="check" />}
-                </span>
-                {i < history.length - 1 && <span className="my-1 w-px flex-1 bg-gray-200" />}
-              </div>
-              <div className="flex flex-1 items-start justify-between gap-3 pb-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm text-gray-800">
-                    {h.from && (
-                      <>
-                        <Badge variant="outline" color="gray" radius="sm" size="xs">
-                          {STATUS[h.from].label}
-                        </Badge>
-                        <AppIcon name="chevron-right" className="text-gray-400" size={12} />
-                      </>
-                    )}
-                    <Badge variant="light" color={STATUS[h.to].color} radius="sm" size="sm">
-                      {STATUS[h.to].label}
-                    </Badge>
-                  </div>
-                  <div className="mt-0.5 text-xs text-gray-500">By {h.by}</div>
-                </div>
-                <span className="shrink-0 text-xs text-gray-400">{dayjs(h.date).format('MMM D, YYYY')}</span>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </div>
+      {!missing && (
+        <div>
+          <SectionTitle>{`Status history (${history.length})`}</SectionTitle>
+          <p className="mb-3 text-xs text-gray-500">Every move the application made, oldest first.</p>
+          {history.length === 0 ? (
+            <Empty>No status change has been recorded yet.</Empty>
+          ) : (
+            <ol>
+              {history.map((h, i) => {
+                const stopped = h.to === 'REJECTED' || h.to === 'CANCELLED'
+                return (
+                  <li key={`${h.to}-${i}`} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] ${
+                          stopped ? 'bg-red-100 text-red-600' : 'bg-brand text-white'
+                        }`}
+                      >
+                        <AppIcon name={stopped ? 'x' : 'check'} />
+                      </span>
+                      {i < history.length - 1 && <span className="my-1 w-px flex-1 bg-gray-200" />}
+                    </div>
+                    <div className="flex flex-1 items-start justify-between gap-3 pb-4">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm text-gray-800">
+                          {h.from && (
+                            <>
+                              <StatusBadge value={h.from} size="xs" outline />
+                              <AppIcon name="chevron-right" className="text-gray-400" size={12} />
+                            </>
+                          )}
+                          <StatusBadge value={h.to} />
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-500">
+                          {h.by ? `By ${h.by}` : 'By the system'}
+                          {h.remarks ? ` · ${h.remarks}` : ''}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-xs text-gray-400">{dateText(h.date)}</span>
+                    </div>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {loan && (

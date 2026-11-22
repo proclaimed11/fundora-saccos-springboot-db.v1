@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { ActionIcon, Avatar, Badge, Button, Menu, Text, UnstyledButton } from '@mantine/core'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
 import logo from '../../assets/logo.png'
 import { AppIcon } from '../appIcon'
@@ -8,6 +8,56 @@ import { NavSearch } from './navSearch'
 import { useAppTheme } from '../../theme/themeContext'
 import { EVENT, SAMPLE_NOTIFICATIONS } from '../../pages/administration/notifications/notificationsData'
 import { initials } from '../../pages/applicants/applicantsData'
+import { useRoles } from '../../pages/administration/roles/rolesContext'
+import { useApplicants, usePendingKycSince } from '../../api/applicants'
+
+// a pinned alert at the top of the bell list while applicants wait for a KYC decision, from GET /api/applicants.
+// Its own component so the request only runs for roles that can open the KYC Review page.
+function KycReviewAlert({ onOpen }: { onOpen: () => void }) {
+  const { data = [] } = useApplicants()
+  const pending = data.filter((a) => a.status === 'PENDING_KYC')
+  // when each one joined the queue (code verified), the registration day until the history has loaded
+  const since = usePendingKycSince(pending.map((a) => a.id))
+  const count = pending.length
+  if (count === 0) return null
+
+  // the latest arrival, shown at the top right like the other items' dates
+  const latest = pending.map((a) => since[a.id] ?? a.registered).filter(Boolean).sort().pop()
+
+  return (
+    <div className="border-b border-slate-100 p-1.5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+      >
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+          <AppIcon name="contact-round" size={15} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <Text size="xs" fw={600} className="text-slate-800">
+                KYC review
+              </Text>
+              <Badge size="xs" variant="filled" color="red" radius="xl">
+                {count > 99 ? '99+' : count}
+              </Badge>
+            </div>
+            {latest && (
+              <Text size="xs" className="shrink-0 text-slate-400">
+                {dayjs(latest).format('MMM D')}
+              </Text>
+            )}
+          </div>
+          <Text size="xs" className="mt-1 leading-relaxed text-slate-600">
+            {count === 1 ? '1 applicant is' : `${count} applicants are`} waiting for a KYC decision.
+          </Text>
+        </div>
+      </button>
+    </div>
+  )
+}
 
 export type Crumb = { label: string; to?: string }
 
@@ -47,6 +97,10 @@ export function DashboardHeader({
   const parts = Array.isArray(title) ? title : [title]
   const { headerStyle } = useAppTheme()
   const navigate = useNavigate()
+  // key is 'default' when this page is the first one opened in the tab, so there is nothing to go back to
+  const location = useLocation()
+  const { can } = useRoles()
+  const canReviewKyc = can('applicants', 'view', 'kyc-review')
 
   // the same sample data as the Notifications page, newest first
   const unread = SAMPLE_NOTIFICATIONS.filter((n) => n.status === 'SENT').sort((a, b) =>
@@ -188,6 +242,8 @@ export function DashboardHeader({
                 </Badge>
               </div>
 
+              {canReviewKyc && <KycReviewAlert onOpen={() => navigate('/kyc-review')} />}
+
               {latest.length === 0 ? (
                 <div className="px-4 py-10 text-center">
                   <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
@@ -280,7 +336,22 @@ export function DashboardHeader({
         {sidebar}
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
           <div className="relative z-10 flex shrink-0 items-start justify-between gap-4 px-4 pb-11 pt-0">
-            <div className="min-w-0">
+            <div className="flex min-w-0 items-start gap-3">
+              {/* back to the previous page; hidden on Home, and Home is the fallback when the page was opened directly */}
+              {location.pathname !== '/' && (
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  className="-ml-1 shrink-0"
+                  aria-label="Go back"
+                  title="Go back"
+                  onClick={() => (location.key === 'default' ? navigate('/') : navigate(-1))}
+                >
+                  <AppIcon name="chevron-left" size={18} strokeWidth={1.25} />
+                </ActionIcon>
+              )}
+              <div className="min-w-0">
               <Text size="md" c="dark.7" className="leading-none">
                 {parts.map((part, i) => (
                   <span key={`${part}-${i}`}>
@@ -297,6 +368,7 @@ export function DashboardHeader({
                   {subtitle}
                 </Text>
               )}
+              </div>
             </div>
 
             {actions && (

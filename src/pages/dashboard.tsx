@@ -17,7 +17,7 @@ import {
   applications,
   viewOf,
 } from './loans/loanApplicationsData'
-import { applicants } from './applicants/applicantsData'
+import { useApplicants, usePendingKycSince } from '../api/applicants'
 import { SAMPLE_ACCOUNTS } from './accounting/accountingData'
 import { SAMPLE_CASES } from './collections/collectionsData'
 import { HomeFallback } from '../components/dashboard/homeFallback'
@@ -140,25 +140,6 @@ const approvalQueue: Queue[] = applications
     }
   })
 
-// applicants whose documents are waiting for a KYC decision
-const kycQueue: Queue[] = applicants
-  .filter((a) => a.status === 'PENDING_KYC')
-  .map((a) => {
-    const days = dayjs().diff(dayjs(a.registered), 'day')
-    return {
-      days,
-      row: {
-        id: a.id,
-        title: a.name,
-        sub: a.applicantNo,
-        value: a.isReturning ? 'Returning' : 'New',
-        valueSub: `Waiting ${waiting(days)}`,
-        late: days > LATE_KYC_DAYS,
-        to: `/applicants/${a.id}`,
-      },
-    }
-  })
-
 const overdueCollectionsQueue: Queue[] = views
   .filter((loan) => loan.state === 'OVERDUE' && loan.overdueAmount > 0)
   .map((loan) => {
@@ -186,7 +167,29 @@ export function Dashboard() {
   const show = (widget: string) => can('dashboard', 'view', widget)
 
   const approvalRows = oldestFirst(approvalQueue)
-  const kycRows = oldestFirst(kycQueue)
+
+  // GET /api/applicants: the applicants waiting for a KYC decision, the same list as the KYC Review page.
+  // Waiting counts from the day the code was verified (status history), the registration day until it loads.
+  const { data: allApplicants = [] } = useApplicants()
+  const pendingKyc = allApplicants.filter((a) => a.status === 'PENDING_KYC')
+  const pendingSince = usePendingKycSince(pendingKyc.map((a) => a.id))
+  const kycRows = oldestFirst(
+    pendingKyc.map((a) => {
+      const days = dayjs().startOf('day').diff(dayjs(pendingSince[a.id] ?? a.registered), 'day')
+      return {
+        days,
+        row: {
+          id: a.id,
+          title: a.name,
+          sub: a.applicantNo,
+          value: a.isReturning ? 'Returning' : 'New',
+          valueSub: `Waiting ${waiting(days)}`,
+          late: days > LATE_KYC_DAYS,
+          to: `/applicants/${a.id}`,
+        },
+      }
+    }),
+  )
 
   // sample data from /api/reports/npl
   const nplBuckets: Bucket[] = [

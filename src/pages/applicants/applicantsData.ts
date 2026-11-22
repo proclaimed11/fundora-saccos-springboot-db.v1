@@ -136,7 +136,7 @@ export function loansFor(a: Applicant): LoanRow[] {
 export const nidaFor = (a: Applicant) => `NIDA${String(a.id).padStart(6, '0')}`
 
 
-/* ---------- SAMPLE ONLY: financial profile and existing debts, replaced by API data later ---------- */
+/* ---------- financial profile and existing debts, loaded by src/api/applicantRecords.ts ---------- */
 
 export const EMPLOYMENT_TYPES = ['Employed', 'Self-employed', 'Business owner', 'Unemployed', 'Other']
 
@@ -155,21 +155,7 @@ export type ExistingDebt = {
   monthly: number // monthly payment
 }
 
-// an applicant who has not verified their OTP has no financial profile yet
-export function financialFor(a: Applicant): FinancialProfile | null {
-  if (a.status === 'PENDING_OTP' || a.status === 'PERSONAL_DETAILS' || a.status === 'ADDRESS_DETAILS') return null
-  return { employmentType: 'Employed', employer: 'Acme Tech Ltd', monthlyIncome: 2500000, monthlyExpenses: 1200000, dependants: 2 }
-}
-
-export function debtsFor(a: Applicant): ExistingDebt[] {
-  if (a.status !== 'KYC_APPROVED') return []
-  return [
-    { id: 1, lender: 'CRDB Bank', balance: 800000, monthly: 90000 },
-    { id: 2, lender: 'Vodacom M-Pawa', balance: 150000, monthly: 25000 },
-  ]
-}
-
-/* ---------- SAMPLE ONLY: member accounts, replaced by API data later ---------- */
+/* ---------- member accounts, loaded by src/api/applicantRecords.ts ---------- */
 
 // the accounts approved loans are paid into (the disbursement "Paid to" list)
 export type ApplicantAccount = {
@@ -183,16 +169,7 @@ export type ApplicantAccount = {
 export const MOBILE_PROVIDERS = ['M-Pesa', 'Tigo Pesa', 'Airtel Money', 'HaloPesa']
 export const BANK_PROVIDERS = ['CRDB Bank', 'NMB Bank', 'NBC Bank', 'Stanbic Bank', 'Equity Bank', 'Other bank']
 
-// only approved applicants can receive a loan, so only they have accounts in the sample
-export function accountsFor(a: Applicant): ApplicantAccount[] {
-  if (a.status !== 'KYC_APPROVED') return []
-  return [
-    { id: 1, method: 'MOBILE_MONEY', provider: 'M-Pesa', number: a.phone, primary: true },
-    { id: 2, method: 'BANK_TRANSFER', provider: 'CRDB Bank', number: '0150004821', primary: false },
-  ]
-}
-
-/* ---------- SAMPLE ONLY: applicant documents, replaced by API data later ---------- */
+/* ---------- applicant documents, loaded by src/api/applicantRecords.ts ---------- */
 
 export const DOCUMENT_TYPES = ['NIDA document', 'ID scan', 'TIN certificate', 'Proof of address', 'Passport photo', 'Other']
 
@@ -211,12 +188,7 @@ export type ApplicantDocument = {
   file?: File | null
 }
 
-export const documentsFor = (a: Applicant): ApplicantDocument[] => [
-  { id: 1, type: 'NIDA document', fileName: 'nida-document.pdf', sizeKb: 420, uploaded: a.registered, uploadedBy: 'Registration', notes: '' },
-  { id: 2, type: 'ID scan', fileName: 'id-scan.jpg', sizeKb: 310, uploaded: a.registered, uploadedBy: 'Registration', notes: '' },
-]
-
-/* ---------- SAMPLE ONLY: KYC history, replaced by GET /api/kyc-verifications later ---------- */
+/* ---------- KYC history: the profile reads GET /api/kyc-verifications (src/api/applicantRecords.ts) ---------- */
 
 export type KycRecord = {
   id: number
@@ -226,47 +198,6 @@ export type KycRecord = {
   verifiedBy: string
   date: string // ISO date
   expiresAt: string | null // an approval is valid for 12 months
-}
-
-// older records of returning applicants, from before they registered again
-const EARLIER_KYC: Record<number, Omit<KycRecord, 'id'>[]> = {
-  // expired, so a re-check says full KYC is needed
-  2: [
-    { status: 'APPROVED', verificationType: 'FULL_KYC', remarks: 'All documents verified', verifiedBy: 'Asha Mrema', date: '2025-06-20', expiresAt: '2026-06-20' },
-  ],
-  // still valid
-  5: [
-    { status: 'APPROVED', verificationType: 'FULL_KYC', remarks: 'All documents verified', verifiedBy: 'Juma Bakari', date: '2026-05-12', expiresAt: '2027-05-12' },
-  ],
-}
-
-// newest first, built from the applicant's status so it always matches
-export function kycHistoryFor(a: Applicant): KycRecord[] {
-  const list: Omit<KycRecord, 'id'>[] = [...(EARLIER_KYC[a.id] ?? [])]
-  const decided = dayjs(a.registered).add(1, 'day').format('YYYY-MM-DD')
-
-  if (a.status === 'KYC_APPROVED') {
-    list.push({
-      status: 'APPROVED',
-      verificationType: 'FULL_KYC',
-      remarks: 'All documents verified',
-      verifiedBy: 'Asha Mrema',
-      date: decided,
-      expiresAt: dayjs(decided).add(12, 'month').format('YYYY-MM-DD'),
-    })
-  }
-  if (a.status === 'REJECTED') {
-    list.push({
-      status: 'REJECTED',
-      verificationType: 'FULL_KYC',
-      remarks: 'Documents did not pass review',
-      verifiedBy: 'Asha Mrema',
-      date: decided,
-      expiresAt: null,
-    })
-  }
-
-  return list.map((r, i) => ({ id: i + 1, ...r })).sort((x, y) => y.date.localeCompare(x.date))
 }
 
 export type RecheckResult = { valid: boolean; message: string; record: KycRecord | null }

@@ -8,30 +8,51 @@ import { ContractConfirmDialog } from '../loans/contractDialogs'
 import {
   REQUIRED_DOCUMENTS,
   STATUS,
-  accountsFor,
-  debtsFor,
-  documentsFor,
-  financialFor,
-  loansFor,
-  kycHistoryFor,
   type Applicant,
   type ApplicantAccount,
-  type ApplicantDocument,
-  type ExistingDebt,
   type FinancialProfile,
-  type LoanRow,
   type ActivityEvent
 } from './applicantsData'
+import { useNavigate } from 'react-router-dom'
+import { useApplicantLoans, useLoanApplications } from '../../api/loanApplications'
+import { STATUS as LOAN_STATUS, type ApplicationStatus } from '../loans/loanApplicationsData'
 import { MemberAccountDialog, type AccountInput } from './memberAccountDialog'
 import { DebtDialog, FinancialProfileDialog, type DebtInput } from './financialDialogs'
-import { CURRENT_USER } from '../loans/disbursementDialog'
-import { DocumentViewer } from '../../components/documentViewer'
+import { DocumentViewer, type ViewableDocument } from '../../components/documentViewer'
 import { DocumentDialog, isImage, sizeText, type DocumentInput } from './documentDialogs'
 import { Can } from '../auth/requirePermission'
 import { IdentificationSection } from './identificationSection'
 import { ErrorState, LoadingState } from '../../components/pageState'
-import { useApplicantHistory } from '../../api/applicants'
+import { fileUrl, useApplicantHistory, useIdentifications } from '../../api/applicants'
+import {
+  useApplicantDocuments,
+  useDeleteAccount,
+  useDeleteDebt,
+  useDeleteDocument,
+  useExistingDebts,
+  useFinancialProfile,
+  useKycHistory,
+  useMemberAccounts,
+  useSaveAccount,
+  useSaveDocument,
+  useSaveDebt,
+  useSaveFinancialProfile,
+  type DocumentRecord,
+} from '../../api/applicantRecords'
 import { useUserNames } from '../../api/users'
+import { useAuth } from '../../auth/authContext'
+
+// the message of a failed save, shown in a red alert
+const failText = (err: unknown) => (err instanceof Error ? err.message : 'Could not save. Please try again.')
+
+function FailAlert({ text, onClose }: { text: string | null; onClose: () => void }) {
+  if (!text) return null
+  return (
+    <Alert color="red" variant="light" withCloseButton onClose={onClose} icon={<AppIcon name="circle-x" />}>
+      <Text size="sm">{text}</Text>
+    </Alert>
+  )
+}
 
 /* ---------- small helpers ---------- */
 
@@ -127,14 +148,16 @@ export function OverviewTab({ applicant }: { applicant: Applicant }) {
     return row?.changedAt ? dayjs(row.changedAt).format('MMM D, YYYY') : undefined
   }
 
-  const loans = loansFor(applicant)
-  const active = loans.filter((l) => l.status === 'Active')
-  const outstanding = active.reduce((sum, l) => sum + l.outstanding, 0)
+  // GET /api/loan-applications and /api/loans
+  const loanRows = useApplicantLoanRows(applicant.id)
+  const active = loanRows.rows.filter((r) => r.kind === 'Loan' && r.status === 'ACTIVE')
+  const outstanding = loanRows.rows.reduce((sum, r) => sum + (r.kind === 'Loan' ? (r.outstanding ?? 0) : 0), 0)
+  const shown = (v: string | number) => (loanRows.loading ? '…' : loanRows.error ? '-' : v)
 
   const tiles = [
-    { label: 'Applications', value: loans.length },
-    { label: 'Active loans', value: active.length },
-    { label: 'Outstanding', value: formatTzs(outstanding) },
+    { label: 'Applications', value: shown(loanRows.rows.filter((r) => r.kind === 'Application').length) },
+    { label: 'Active loans', value: shown(active.length) },
+    { label: 'Outstanding', value: shown(formatTzs(outstanding)) },
   ]
 
   return (
@@ -180,14 +203,25 @@ export function KycTab({
   onReview?: () => void
   onRecheck?: () => void
 }) {
-  const approvedOn = dayjs(applicant.registered).add(1, 'day')
-  const history = kycHistoryFor(applicant)
+  const { user } = useAuth()
+  const names = useUserNames()
+  // GET /api/kyc-verifications, newest first
+  const kyc = useKycHistory(applicant.id)
+  const history = kyc.data ?? []
+  // GET /api/applicant-documents
+  const documents = useApplicantDocuments(applicant.id)
+  const docs = documents.data ?? []
+  // registration keeps the NIDA file on the identification row, not as a document
+  const { data: ids = [] } = useIdentifications(applicant.id)
+  const saveDoc = useSaveDocument()
+  const deleteDoc = useDeleteDocument()
 
-  // UI only: changes made in this session, nothing is saved yet
-  const [docs, setDocs] = useState<ApplicantDocument[]>(() => documentsFor(applicant))
   const [dialog, setDialog] = useState<DocDialog>(null)
-  const [viewing, setViewing] = useState<ApplicantDocument | null>(null)
+  const [viewing, setViewing] = useState<ViewableDocument | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  // the file picked in this session, the API stores only the record so it cannot send it back
+  const [files, setFiles] = useState<Record<string, File>>({})
 
   useEffect(() => {
     if (!notice) return
@@ -196,28 +230,67 @@ export function KycTab({
   }, [notice])
 
   const target = dialog && typeof dialog === 'object' ? docs.find((d) => d.id === dialog.id) : undefined
-  const missing = REQUIRED_DOCUMENTS.filter((t) => !docs.some((d) => d.type === t))
+  const hasNida = ids.some((i) => i.type === 'NIDA')
+  const missing = REQUIRED_DOCUMENTS.filter(
+    (t) => !docs.some((d) => d.type === t) && !(t === 'NIDA document' && hasNida),
+  )
+  const validUntil = history.find((r) => r.status === 'APPROVED')?.expiresAt ?? null
+  const userName = (id: number | null) => (id === null ? 'Registration' : (names.get(id) ?? `User #${id}`))
 
-  const save = (input: DocumentInput) => {
-    const today = dayjs().format('YYYY-MM-DD')
-    if (dialog === 'add') {
-      const id = Math.max(0, ...docs.map((d) => d.id)) + 1
-      setDocs((list) => [...list, { id, ...input, uploaded: today, uploadedBy: CURRENT_USER }])
-      setNotice(`${input.type} was uploaded.`)
-    } else if (target) {
-      setDocs((list) =>
-        list.map((d) => (d.id === target.id ? { ...d, ...input, uploaded: today, uploadedBy: CURRENT_USER } : d)),
-      )
-      setNotice(`${target.type} was replaced.`)
+  // the NIDA/TIN files saved at registration sit on the identification rows, so they are listed here too.
+  // View only: changing them would go through the identification, not the documents.
+  const registrationFiles = ids
+    .filter((i) => i.documentPath)
+    .map((i) => ({
+      id: i.id,
+      type: `${i.type} document`,
+      fileName: (i.documentPath as string).split('/').pop() ?? '',
+      path: i.documentPath as string,
+    }))
+  const documentCount = registrationFiles.length + docs.length
+
+  const viewDocument = (d: DocumentRecord) =>
+    setViewing({
+      title: d.type,
+      fileName: d.fileName,
+      subtitle: `Uploaded${d.uploaded ? ` ${dayjs(d.uploaded).format('MMM D, YYYY')}` : ''} by ${userName(d.uploadedBy)}`,
+      notes: d.notes,
+      // a file picked in this visit shows straight away, otherwise the backend serves the stored one
+      file: files[d.fileName] ?? null,
+      url: d.filePath ? fileUrl(d.filePath) : null,
+    })
+
+  const save = async (input: DocumentInput) => {
+    if (!user || saveDoc.isPending) return
+    setFailure(null)
+    try {
+      // POST /api/applicant-documents, or PUT /api/applicant-documents/{id} when replacing
+      await saveDoc.mutateAsync({
+        id: dialog === 'add' ? undefined : target?.id,
+        applicantId: applicant.id,
+        type: input.type,
+        fileName: input.fileName,
+        mimeType: input.file?.type ?? '',
+        uploadedBy: user.id,
+      })
+      if (input.file) setFiles((f) => ({ ...f, [input.fileName]: input.file as File }))
+      setNotice(dialog === 'add' ? `${input.type} was uploaded.` : `${target?.type ?? input.type} was replaced.`)
+    } catch (err) {
+      setFailure(failText(err))
     }
     setDialog(null)
   }
 
-  const remove = () => {
-    if (!target || REQUIRED_DOCUMENTS.includes(target.type)) return
-    // TODO: DELETE /api/applicant-documents/{id}
-    setDocs((list) => list.filter((d) => d.id !== target.id))
-    setNotice(`${target.type} was removed.`)
+  const remove = async () => {
+    if (!target || REQUIRED_DOCUMENTS.includes(target.type) || deleteDoc.isPending) return
+    setFailure(null)
+    try {
+      // DELETE /api/applicant-documents/{id}
+      await deleteDoc.mutateAsync(target.id)
+      setNotice(`${target.type} was removed.`)
+    } catch (err) {
+      setFailure(failText(err))
+    }
     setDialog(null)
   }
 
@@ -228,6 +301,7 @@ export function KycTab({
           <Text size="sm">{notice}</Text>
         </Alert>
       )}
+      <FailAlert text={failure} onClose={() => setFailure(null)} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div>
@@ -239,8 +313,8 @@ export function KycTab({
             </Badge>
           </div>
           <Field label="Type" value={applicant.isReturning ? 'Returning' : 'New'} />
-          {applicant.status === 'KYC_APPROVED' && (
-            <Field label="Valid until" value={approvedOn.add(12, 'month').format('MMM D, YYYY')} />
+          {applicant.status === 'KYC_APPROVED' && validUntil && (
+            <Field label="Valid until" value={dayjs(validUntil).format('MMM D, YYYY')} />
           )}
 
           <IdentificationSection applicant={applicant} />
@@ -268,7 +342,7 @@ export function KycTab({
 
         <div>
           <div className="mb-1 flex items-center justify-between gap-2">
-            <SectionTitle>{`Documents (${docs.length})`}</SectionTitle>
+            <SectionTitle>{`Documents (${documentCount})`}</SectionTitle>
             <Can area="applicants" page="applicants" action="edit">
               <Button size="xs" variant="default" leftSection={<AppIcon name="upload" />} onClick={() => setDialog('add')}>
                 Upload
@@ -282,12 +356,47 @@ export function KycTab({
             </Alert>
           )}
 
-          {docs.length === 0 ? (
+          {documents.isLoading ? (
+            <LoadingState rows={2} />
+          ) : documents.error ? (
+            <ErrorState compact message={documents.error.message} onRetry={() => void documents.refetch()} />
+          ) : documentCount === 0 ? (
             <div className="rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">
               No documents have been uploaded.
             </div>
           ) : (
             <ul className="mt-2 space-y-2">
+              {registrationFiles.map((f) => (
+                <li key={`id-${f.id}`} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5">
+                  <AppIcon name={isImage(f.fileName) ? 'file-image' : 'file-text'} className="text-gray-400" size={20} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800">{f.type}</span>
+                      {REQUIRED_DOCUMENTS.includes(f.type) && (
+                        <Badge variant="outline" color="gray" radius="sm" size="xs">
+                          Required
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="truncate text-xs text-gray-500">{f.fileName} · From registration</div>
+                  </div>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    color="brand"
+                    onClick={() =>
+                      setViewing({
+                        title: f.type,
+                        fileName: f.fileName,
+                        subtitle: 'Saved at registration',
+                        url: fileUrl(f.path),
+                      })
+                    }
+                  >
+                    View
+                  </Button>
+                </li>
+              ))}
               {docs.map((d) => (
                 <li key={d.id} className="flex items-center gap-3 rounded-md border border-gray-200 px-3 py-2.5">
                   <AppIcon name={isImage(d.fileName) ? 'file-image' : 'file-text'} className="text-gray-400" size={20} />
@@ -301,10 +410,12 @@ export function KycTab({
                       )}
                     </div>
                     <div className="truncate text-xs text-gray-500">
-                      {d.fileName} · {sizeText(d.sizeKb)} · {dayjs(d.uploaded).format('MMM D, YYYY')}
+                      {d.fileName}
+                      {d.sizeKb > 0 ? ` · ${sizeText(d.sizeKb)}` : ''}
+                      {d.uploaded ? ` · ${dayjs(d.uploaded).format('MMM D, YYYY')}` : ''}
                     </div>
                   </div>
-                  <Button size="xs" variant="subtle" color="brand" onClick={() => setViewing(d)}>
+                  <Button size="xs" variant="subtle" color="brand" onClick={() => viewDocument(d)}>
                     View
                   </Button>
                   <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Replace ${d.type}`} onClick={() => setDialog({ kind: 'replace', id: d.id })}>
@@ -330,7 +441,11 @@ export function KycTab({
 
             <div>
         <SectionTitle>{`KYC history (${history.length})`}</SectionTitle>
-        {history.length === 0 ? (
+        {kyc.isLoading ? (
+          <LoadingState rows={2} />
+        ) : kyc.error ? (
+          <ErrorState compact message={kyc.error.message} onRetry={() => void kyc.refetch()} />
+        ) : history.length === 0 ? (
           <div className="rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">
             No KYC decision has been recorded yet.
           </div>
@@ -359,7 +474,8 @@ export function KycTab({
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {dayjs(r.date).format('MMM D, YYYY')} · by {r.verifiedBy}
+                      {r.date ? dayjs(r.date).format('MMM D, YYYY') : 'Date not recorded'}
+                      {r.verifiedBy !== null ? ` · by ${userName(r.verifiedBy)}` : ''}
                       {r.expiresAt ? ` · until ${dayjs(r.expiresAt).format('MMM D, YYYY')}` : ''}
                     </div>
                     {r.remarks && <div className="mt-0.5 text-xs text-gray-600">"{r.remarks}"</div>}
@@ -373,26 +489,17 @@ export function KycTab({
 
       <DocumentDialog
         opened={dialog === 'add' || (typeof dialog === 'object' && dialog?.kind === 'replace')}
-        document={typeof dialog === 'object' && dialog?.kind === 'replace' ? (target ?? null) : null}
+        document={
+          typeof dialog === 'object' && dialog?.kind === 'replace' && target
+            ? { ...target, uploadedBy: userName(target.uploadedBy) }
+            : null
+        }
         existingTypes={docs.map((d) => d.type)}
         onClose={() => setDialog(null)}
         onSubmit={save}
       />
 
-      <DocumentViewer
-        document={
-          viewing
-            ? {
-                title: viewing.type,
-                fileName: viewing.fileName,
-                subtitle: `Uploaded ${dayjs(viewing.uploaded).format('MMM D, YYYY')} by ${viewing.uploadedBy}`,
-                notes: viewing.notes,
-                file: viewing.file,
-              }
-            : null
-        }
-        onClose={() => setViewing(null)}
-      />
+      <DocumentViewer document={viewing} onClose={() => setViewing(null)} />
 
       <ContractConfirmDialog
         opened={typeof dialog === 'object' && dialog?.kind === 'remove' && !!target}
@@ -409,11 +516,19 @@ export function KycTab({
 type FinancialDialog = 'profile' | 'debt-add' | { kind: 'debt-edit' | 'debt-remove'; id: number } | null
 
 export function FinancialTab({ applicant }: { applicant: Applicant }) {
-  // UI only: changes made in this session, nothing is saved yet
-  const [profile, setProfile] = useState<FinancialProfile | null>(() => financialFor(applicant))
-  const [debts, setDebts] = useState<ExistingDebt[]>(() => debtsFor(applicant))
+  // GET /api/financial-profiles and /api/existing-debts (debts with other lenders, declared by the applicant;
+  // the credit assessment reads the same records)
+  const profileQuery = useFinancialProfile(applicant.id)
+  const profile = profileQuery.data ?? null
+  const debtsQuery = useExistingDebts(applicant.id)
+  const debts = debtsQuery.data ?? []
+  const saveProfileMutation = useSaveFinancialProfile()
+  const saveDebtMutation = useSaveDebt()
+  const deleteDebtMutation = useDeleteDebt()
+
   const [dialog, setDialog] = useState<FinancialDialog>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
     if (!notice) return
@@ -428,32 +543,42 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
   const cashFlow = profile ? profile.monthlyIncome - profile.monthlyExpenses : 0
   const afterDebts = cashFlow - totalMonthly
 
-  const saveProfile = (input: FinancialProfile) => {
-    // TODO: POST or PUT /api/financial-profiles
-    setProfile(input)
-    setNotice('The financial profile was saved.')
-    setDialog(null)
-  }
-
-  const saveDebt = (input: DebtInput) => {
-    // TODO: POST /api/existing-debts, or PUT /api/existing-debts/{id}
-    if (dialog === 'debt-add') {
-      const id = Math.max(0, ...debts.map((d) => d.id)) + 1
-      setDebts((list) => [...list, { id, ...input }])
-      setNotice(`The debt with ${input.lender} was added.`)
-    } else if (debtDialog) {
-      setDebts((list) => list.map((d) => (d.id === debtDialog.id ? { ...d, ...input } : d)))
-      setNotice(`The debt with ${input.lender} was updated.`)
+  // runs one save, shows the outcome and closes the dialog
+  const run = async (work: () => Promise<unknown>, done: string) => {
+    setFailure(null)
+    try {
+      await work()
+      setNotice(done)
+    } catch (err) {
+      setFailure(failText(err))
     }
     setDialog(null)
   }
 
+  const saveProfile = (input: FinancialProfile) => {
+    if (saveProfileMutation.isPending) return
+    // POST /api/financial-profiles, or PUT /api/financial-profiles/{id}
+    void run(
+      () => saveProfileMutation.mutateAsync({ id: profile?.id, applicantId: applicant.id, profile: input }),
+      'The financial profile was saved.',
+    )
+  }
+
+  const saveDebt = (input: DebtInput) => {
+    if (saveDebtMutation.isPending) return
+    const adding = dialog === 'debt-add'
+    if (!adding && !debtDialog) return
+    // POST /api/existing-debts, or PUT /api/existing-debts/{id}
+    void run(
+      () => saveDebtMutation.mutateAsync({ current: adding ? undefined : debtDialog, applicantId: applicant.id, debt: input }),
+      adding ? `The debt with ${input.lender} was added.` : `The debt with ${input.lender} was updated.`,
+    )
+  }
+
   const removeDebt = () => {
-    if (!debtDialog) return
-    // TODO: DELETE /api/existing-debts/{id}
-    setDebts((list) => list.filter((d) => d.id !== debtDialog.id))
-    setNotice(`The debt with ${debtDialog.lender} was removed.`)
-    setDialog(null)
+    if (!debtDialog || deleteDebtMutation.isPending) return
+    // DELETE /api/existing-debts/{id}
+    void run(() => deleteDebtMutation.mutateAsync(debtDialog.id), `The debt with ${debtDialog.lender} was removed.`)
   }
 
   const tiles = [
@@ -462,6 +587,19 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
     { label: 'Left after debts', value: profile ? formatTzs(afterDebts) : '—', warn: !!profile && afterDebts < 0 },
   ]
 
+  if (profileQuery.isLoading || debtsQuery.isLoading) return <LoadingState rows={4} />
+  const loadError = profileQuery.error ?? debtsQuery.error
+  if (loadError)
+    return (
+      <ErrorState
+        message={loadError.message}
+        onRetry={() => {
+          void profileQuery.refetch()
+          void debtsQuery.refetch()
+        }}
+      />
+    )
+
   return (
     <div className="space-y-6">
       {notice && (
@@ -469,6 +607,7 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
           <Text size="sm">{notice}</Text>
         </Alert>
       )}
+      <FailAlert text={failure} onClose={() => setFailure(null)} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {tiles.map((t) => (
@@ -494,13 +633,16 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
             </Button>
           </div>
 
+          {/* captured at registration (applicant.occupation); changed with Edit on the profile, not here */}
+          <Field label="Occupation" value={applicant.occupation || '-'} />
+
           {profile ? (
             <>
-              <Field label="Employment type" value={profile.employmentType} />
+              <Field label="Employment type" value={profile.employmentType || '-'} />
               <Field label="Employer" value={profile.employer || '—'} />
               <Field label="Monthly income" value={formatTzs(profile.monthlyIncome)} />
               <Field label="Monthly expenses" value={formatTzs(profile.monthlyExpenses)} />
-              <Field label="Dependants" value={String(profile.dependants)} />
+              {/* dependants are not shown: the financial_profile table has no column for them yet */}
             </>
           ) : (
             <div className="rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">
@@ -509,7 +651,7 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
           )}
         </div>
 
-        {/* existing debts */}
+        {/* existing debts with other lenders, declared by the applicant */}
         <div>
           <div className="mb-1 flex items-center justify-between gap-2">
             <SectionTitle>{`Existing debts (${debts.length})`}</SectionTitle>
@@ -517,6 +659,9 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
               Add debt
             </Button>
           </div>
+          <Text size="xs" c="dimmed" mb={6}>
+            Loans with other lenders, as declared by the applicant. Used in the credit assessment.
+          </Text>
 
           {debts.length === 0 ? (
             <div className="rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">
@@ -562,13 +707,6 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
         </div>
       </div>
 
-      <FinancialProfileDialog
-        opened={dialog === 'profile'}
-        profile={profile}
-        onClose={() => setDialog(null)}
-        onSubmit={saveProfile}
-      />
-
       <DebtDialog
         opened={dialog === 'debt-add' || (typeof dialog === 'object' && dialog?.kind === 'debt-edit')}
         debt={typeof dialog === 'object' && dialog?.kind === 'debt-edit' ? (debtDialog ?? null) : null}
@@ -584,6 +722,13 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
         onClose={() => setDialog(null)}
         onConfirm={removeDebt}
       />
+
+      <FinancialProfileDialog
+        opened={dialog === 'profile'}
+        profile={profile}
+        onClose={() => setDialog(null)}
+        onSubmit={saveProfile}
+      />
     </div>
   )
 }
@@ -591,10 +736,16 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
 type AccountDialog = 'add' | { kind: 'edit' | 'remove'; id: number } | null
 
 export function AccountsTab({ applicant }: { applicant: Applicant }) {
-  // UI only: changes made in this session, nothing is saved yet
-  const [accounts, setAccounts] = useState<ApplicantAccount[]>(() => accountsFor(applicant))
+  // GET /api/member-accounts
+  const accountsQuery = useMemberAccounts(applicant.id)
+  const accounts = accountsQuery.data ?? []
+  const saveAccount = useSaveAccount()
+  const deleteAccount = useDeleteAccount()
+  const busy = saveAccount.isPending || deleteAccount.isPending
+
   const [dialog, setDialog] = useState<AccountDialog>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
     if (!notice) return
@@ -605,39 +756,67 @@ export function AccountsTab({ applicant }: { applicant: Applicant }) {
   const target = dialog && typeof dialog === 'object' ? accounts.find((a) => a.id === dialog.id) : undefined
   const label = (a: ApplicantAccount) => `${a.provider} ${a.number}`
 
-  const save = (input: AccountInput) => {
-    // TODO: POST /api/member-accounts, or PUT /api/member-accounts/{id}
-    if (dialog === 'add') {
-      const id = Math.max(0, ...accounts.map((a) => a.id)) + 1
-      // the first account is always the primary one
-      const primary = input.primary || accounts.length === 0
-      setAccounts((list) => [...list.map((a) => (primary ? { ...a, primary: false } : a)), { id, ...input, primary }])
-      setNotice(`${input.provider} was added.`)
-    } else if (target) {
-      const primary = input.primary || target.primary
-      setAccounts((list) =>
-        list.map((a) => (a.id === target.id ? { ...a, ...input, primary } : primary ? { ...a, primary: false } : a)),
-      )
-      setNotice(`${input.provider} was updated.`)
+  // runs one save, shows the outcome and closes the dialog
+  const run = async (work: () => Promise<unknown>, done: string) => {
+    setFailure(null)
+    try {
+      await work()
+      setNotice(done)
+    } catch (err) {
+      setFailure(failText(err))
     }
     setDialog(null)
   }
 
+  const save = (input: AccountInput) => {
+    if (busy) return
+    const adding = dialog === 'add'
+    if (!adding && !target) return
+    // the first account is always the primary one, and the primary one stays primary on edit
+    const primary = input.primary || (adding ? accounts.length === 0 : !!target?.primary)
+    const others = accounts.filter((a) => a.id !== target?.id)
+    // POST /api/member-accounts, or PUT /api/member-accounts/{id}; a new primary demotes the old one first
+    void run(
+      () =>
+        saveAccount.mutateAsync({
+          current: adding ? undefined : target,
+          applicantId: applicant.id,
+          account: { ...input, primary },
+          others,
+        }),
+      adding ? `${input.provider} was added.` : `${input.provider} was updated.`,
+    )
+  }
+
   const makePrimary = (a: ApplicantAccount) => {
-    // TODO: PUT /api/member-accounts/{id} for the old and the new primary account
-    setAccounts((list) => list.map((x) => ({ ...x, primary: x.id === a.id })))
-    setNotice(`${label(a)} is now the primary account.`)
+    const current = accounts.find((x) => x.id === a.id)
+    if (!current || busy) return
+    // PUT /api/member-accounts/{id} for the old and the new primary account
+    void run(
+      () =>
+        saveAccount.mutateAsync({
+          current,
+          applicantId: applicant.id,
+          account: { ...current, primary: true },
+          others: accounts.filter((x) => x.id !== a.id),
+        }),
+      `${label(a)} is now the primary account.`,
+    )
   }
 
   const remove = () => {
-    if (!target) return
-    // TODO: DELETE /api/member-accounts/{id}
-    const rest = accounts.filter((a) => a.id !== target.id)
-    // if the primary one is removed, the first remaining account takes over
-    setAccounts(target.primary && rest.length > 0 ? rest.map((a, i) => ({ ...a, primary: i === 0 })) : rest)
-    setNotice(`${label(target)} was removed.`)
-    setDialog(null)
+    if (!target || busy) return
+    // DELETE /api/member-accounts/{id}; if it was primary, the first remaining account takes over
+    const next = accounts.find((a) => a.id !== target.id)
+    void run(
+      () => deleteAccount.mutateAsync({ target, applicantId: applicant.id, next }),
+      `${label(target)} was removed.`,
+    )
   }
+
+  if (accountsQuery.isLoading) return <LoadingState rows={3} />
+  if (accountsQuery.error)
+    return <ErrorState message={accountsQuery.error.message} onRetry={() => void accountsQuery.refetch()} />
 
   return (
     <div className="space-y-4">
@@ -646,6 +825,7 @@ export function AccountsTab({ applicant }: { applicant: Applicant }) {
           <Text size="sm">{notice}</Text>
         </Alert>
       )}
+      <FailAlert text={failure} onClose={() => setFailure(null)} />
 
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -716,20 +896,104 @@ export function AccountsTab({ applicant }: { applicant: Applicant }) {
   )
 }
 
+/* ---------- the applicant's loan applications and loans (GET /api/loan-applications and /api/loans) ---------- */
+
+type LoanRow = {
+  key: string
+  kind: 'Application' | 'Loan'
+  ref: string
+  amount: number
+  /** still owed, loans only */
+  outstanding: number | null
+  status: string
+  statusLabel: string
+  color: string
+  date: string
+  to: string
+}
+
+const LOAN_STATE: Record<string, { label: string; color: string }> = {
+  ACTIVE: { label: 'Active', color: 'green' },
+  PENDING_DISBURSEMENT: { label: 'Awaiting payout', color: 'yellow' },
+  CLOSED: { label: 'Closed', color: 'gray' },
+  WRITTEN_OFF: { label: 'Written off', color: 'red' },
+}
+
+const wordsOf = (v: string) => {
+  const s = v.replace(/_/g, ' ').toLowerCase()
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '-'
+}
+
+function useApplicantLoanRows(applicantId: number) {
+  const applications = useLoanApplications()
+  const loans = useApplicantLoans(applicantId)
+  const rows: LoanRow[] = [
+    ...(applications.data ?? [])
+      .filter((a) => a.applicantId === applicantId)
+      .map((a) => {
+        const known = LOAN_STATUS[a.status as ApplicationStatus]
+        return {
+          key: `app-${a.id}`,
+          kind: 'Application' as const,
+          ref: a.applicationNo || `#${a.id}`,
+          amount: a.requestedAmount ?? 0,
+          outstanding: null,
+          status: a.status,
+          statusLabel: known?.label ?? wordsOf(a.status),
+          color: known?.color ?? 'gray',
+          date: (a.submittedAt ?? a.createdAt ?? '').slice(0, 10),
+          // a draft continues in the wizard, the rest open the application page
+          to: a.status === 'DRAFT' ? `/loan-applications/new?applicantId=${applicantId}` : `/loan-applications/${a.id}`,
+        }
+      }),
+    ...(loans.data ?? []).map((l) => ({
+      key: `loan-${l.id}`,
+      kind: 'Loan' as const,
+      ref: l.loanNo,
+      amount: l.principal,
+      outstanding: l.outstanding,
+      status: l.status,
+      statusLabel: LOAN_STATE[l.status]?.label ?? wordsOf(l.status),
+      color: LOAN_STATE[l.status]?.color ?? 'gray',
+      date: l.createdAt,
+      to: `/loans/${l.id}`,
+    })),
+  ]
+  return {
+    rows,
+    loading: applications.isLoading || loans.isLoading,
+    error: applications.error ?? loans.error,
+    refetch: () => {
+      void applications.refetch()
+      void loans.refetch()
+    },
+  }
+}
+
 const loanColumns: CustomTableColumn<LoanRow>[] = [
   { accessor: 'ref', header: 'Reference' },
-  { accessor: 'product', header: 'Product' },
   {
-    accessor: 'amount',
-    header: 'Amount',
-    render: (r) => <Text size="sm">{formatTzs(r.amount)}</Text>,
+    accessor: 'kind',
+    header: 'Type',
+    render: (r) => (
+      <Badge variant="outline" color={r.kind === 'Loan' ? 'brand' : 'gray'} radius="sm" size="sm">
+        {r.kind}
+      </Badge>
+    ),
+  },
+  { accessor: 'amount', header: 'Amount', render: (r) => <Text size="sm">{formatTzs(r.amount)}</Text>, exportValue: (r) => r.amount },
+  {
+    accessor: 'outstanding',
+    header: 'Still owed',
+    render: (r) => <Text size="sm">{r.outstanding === null ? '-' : formatTzs(r.outstanding)}</Text>,
+    exportValue: (r) => r.outstanding ?? '',
   },
   {
-    accessor: 'status',
+    accessor: 'statusLabel',
     header: 'Status',
     render: (r) => (
-      <Badge variant="light" color={r.status === 'Active' ? 'green' : 'yellow'} radius="sm" size="sm">
-        {r.status}
+      <Badge variant="light" color={r.color} radius="sm" size="sm">
+        {r.statusLabel}
       </Badge>
     ),
   },
@@ -737,13 +1001,19 @@ const loanColumns: CustomTableColumn<LoanRow>[] = [
 ]
 
 export function LoansTab({ applicant }: { applicant: Applicant }) {
+  const navigate = useNavigate()
+  const { rows, loading, error, refetch } = useApplicantLoanRows(applicant.id)
+
+  if (error) return <ErrorState compact message={error.message} onRetry={refetch} />
   return (
     <CustomTable<LoanRow>
       size="sm"
-      data={loansFor(applicant)}
+      loading={loading}
+      data={rows}
       columns={loanColumns}
       pagination={false}
       defaultSort={{ accessor: 'date', direction: 'desc' }}
+      onRowClick={(r) => navigate(r.to)}
       noRecordText="No loans or applications yet"
     />
   )

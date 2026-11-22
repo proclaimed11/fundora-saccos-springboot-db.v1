@@ -2,7 +2,7 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { Alert, Badge, Button, Tabs, Text } from '@mantine/core'
+import { Alert, Badge, Button, Tabs, Text, Tooltip } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { CustomTabs } from '../../components/customTabs'
 import { STATUS, initials, stageActions } from './applicantsData'
@@ -23,6 +23,11 @@ import { RecheckKycDialog } from './kycRecheckDialog'
 import { SendOtpDialog } from './otpDialog'
 import { usePageAccess } from '../auth/usePageAccess'
 import { useApplicant, useUpdateApplicant, useDeleteApplicant } from '../../api/applicants'
+import {
+  IN_PROGRESS_APPLICATION_STATUSES,
+  useLoanApplications,
+  useUnfinishedLoans,
+} from '../../api/loanApplications'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -63,6 +68,24 @@ export function ApplicantProfile() {
   const { canEdit, canDelete } = usePageAccess('applicants', 'applicants')
   const { canApprove: canDecideKyc } = usePageAccess('applicants', 'kyc-review')
   const { canCreate: canStartLoan } = usePageAccess('loans', 'applications')
+
+  // GET /api/loan-applications and /api/loans: what decides the loan button at the top
+  const applicantId = Number(id) || 0
+  const applicationsQuery = useLoanApplications()
+  const unfinishedQuery = useUnfinishedLoans(applicantId)
+  const myApplications = (applicationsQuery.data ?? []).filter((a) => a.applicantId === applicantId)
+  const draft = myApplications.find((a) => !a.finalized && a.status === 'DRAFT')
+  const inProgress = myApplications.find((a) => IN_PROGRESS_APPLICATION_STATUSES.includes(a.status))
+  const unfinishedLoan = (unfinishedQuery.data ?? [])[0]
+  const loanCheckLoading = applicationsQuery.isLoading || unfinishedQuery.isLoading
+  // why a new application cannot be started, or null when it can
+  const blockedReason = inProgress
+    ? `Application ${inProgress.applicationNo || `#${inProgress.id}`} is still in progress.`
+    : unfinishedLoan
+      ? `Loan ${unfinishedLoan.loanNo} is not completed yet.`
+      : applicationsQuery.error || unfinishedQuery.error
+        ? 'Could not check the applicant’s loans. Refresh the page to try again.'
+        : null
 
   const crumbs = [
     { label: 'Home', to: '/' },
@@ -166,7 +189,7 @@ export function ApplicantProfile() {
     { icon: 'mail', value: applicant.email },
     { icon: 'map-pin', value: applicant.location },
     { icon: 'flag', value: applicant.nationality },
-    { icon: 'calendar-days', value: `Registered ${dayjs(applicant.registered).format('MMM D, YYYY')}` },
+    { icon: 'calendar-days', value: applicant.registered ? `Registered ${dayjs(applicant.registered).format('MMM D, YYYY')}` : '' },
   ]
 
   return (
@@ -192,16 +215,52 @@ export function ApplicantProfile() {
             </Button>
           )}
 
-          {stageActions(applicant).filter((x) => allowed(x.label)).map((x) => (
-            <Button
-              key={x.label}
-              size="xs"
-              leftSection={<AppIcon name={x.icon} />}
-              onClick={() => runStage(x.label)}
-            >
-              {x.label}
-            </Button>
-          ))}
+          {stageActions(applicant).filter((x) => allowed(x.label)).map((x) => {
+            if (x.label !== 'Start loan application') {
+              return (
+                <Button key={x.label} size="xs" leftSection={<AppIcon name={x.icon} />} onClick={() => runStage(x.label)}>
+                  {x.label}
+                </Button>
+              )
+            }
+            // an unfinished draft is continued instead of starting another one
+            if (draft) {
+              return (
+                <Button
+                  key="continue-application"
+                  size="xs"
+                  leftSection={<AppIcon name="pencil" />}
+                  onClick={() => navigate(`/loan-applications/new?applicantId=${applicant.id}`)}
+                >
+                  Continue application
+                </Button>
+              )
+            }
+            // an application in progress or a loan not completed blocks a new one; the reason shows on hover
+            const blocked = loanCheckLoading || blockedReason !== null
+            return (
+              <Tooltip
+                key={x.label}
+                label={loanCheckLoading ? 'Checking the applicant’s loans…' : (blockedReason ?? '')}
+                disabled={!blocked}
+                withArrow
+                multiline
+                maw={260}
+              >
+                <span>
+                  <Button
+                    size="xs"
+                    leftSection={<AppIcon name={x.icon} />}
+                    disabled={blocked}
+                    loading={loanCheckLoading}
+                    onClick={() => runStage(x.label)}
+                  >
+                    {x.label}
+                  </Button>
+                </span>
+              </Tooltip>
+            )
+          })}
           {canDelete && (
             <Button
               size="xs"
@@ -254,7 +313,8 @@ export function ApplicantProfile() {
             {details.map((d) => (
               <li key={d.icon} className="flex items-start gap-3 text-sm text-gray-700">
                 <AppIcon name={d.icon} className="mt-0.5 w-4 text-center text-gray-400" />
-                <span className="min-w-0 break-words">{d.value}</span>
+                {/* a detail the applicant has not given yet shows a dash */}
+                <span className="min-w-0 break-words">{d.value.trim() || '-'}</span>
               </li>
             ))}
           </ul>

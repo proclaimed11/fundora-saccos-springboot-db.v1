@@ -62,8 +62,12 @@ export function CustomTabs({
               <span>{label}</span>
               {count !== undefined && (
                 <span
-                  className={`inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none ${
-                    selected ? 'bg-brand text-white' : 'bg-brand-subtle text-brand'
+                  className={`inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border px-1 text-[10px] font-semibold leading-none ${
+                    // inactive: the same translucent brand tint and brand-coloured text as the header's user avatar
+                    // (Mantine's "light" brand variant); the border stays see-through so the size never shifts
+                    selected
+                      ? 'border-transparent bg-brand text-white'
+                      : 'border-transparent bg-[var(--mantine-color-brand-light)] text-[var(--mantine-color-brand-light-color)]'
                   }`}
                 >
                   {count}

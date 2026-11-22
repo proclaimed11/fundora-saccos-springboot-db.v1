@@ -2,6 +2,39 @@ import { AppIcon } from '../appIcon'
 import { ScrollArea, Text, UnstyledButton } from '@mantine/core'
 import { visibleSections } from './navItems'
 import { useRoles } from '../../pages/administration/roles/rolesContext'
+import { useApplicants } from '../../api/applicants'
+
+// the number of applicants waiting for a KYC decision, from GET /api/applicants (shared with the pages' cache).
+// Its own component so the request only runs for roles that can see the KYC Review link.
+function KycPendingCount({ collapsed, open }: { collapsed: boolean; open: boolean }) {
+  const { data = [] } = useApplicants()
+  const count = data.filter((a) => a.status === 'PENDING_KYC').length
+  if (count === 0) return null
+
+  const label = count > 99 ? '99+' : String(count)
+  return (
+    <>
+      {/* full sidebar: a pill at the end of the row */}
+      <span
+        aria-label={`${count} waiting for KYC review`}
+        className={`ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold leading-none text-white ${
+          collapsed ? 'lg:hidden' : ''
+        } ${!open ? 'max-lg:hidden' : ''}`}
+      >
+        {label}
+      </span>
+      {/* icon-only rail: a small dot on the icon instead */}
+      {(collapsed || !open) && (
+        <span
+          aria-hidden="true"
+          className={`absolute left-1/2 top-1.5 ml-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-sidebar-background ${
+            collapsed ? 'hidden lg:block' : 'hidden max-lg:block'
+          }`}
+        />
+      )}
+    </>
+  )
+}
 
 type SidebarProps = {
   active: string
@@ -119,6 +152,7 @@ export function Sidebar({
                       >
                         {item.label}
                       </Text>
+                      {item.key === 'kyc-review' && <KycPendingCount collapsed={collapsed} open={open} />}
                       {isActive && (
                         <span
                           aria-hidden="true"
