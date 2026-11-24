@@ -23,6 +23,8 @@ export const ACTIONS = [
   { key: 'edit', label: 'Edit' },
   { key: 'approve', label: 'Approve' },
   { key: 'delete', label: 'Delete' },
+  // permissions row: area loans, page applications, action change-hierarchy (picking a loan's approval hierarchy)
+  { key: 'change-hierarchy', label: 'Change hierarchy', short: 'Hierarchy' },
 ]
 
 export const actionLabel = (key: string) => ACTIONS.find((a) => a.key === key)?.label ?? key
@@ -61,7 +63,7 @@ function areaWithPages(key: string, label: string, pages: PageDef[], unit?: Modu
     { key: 'kyc-review', label: 'KYC Review', actions: ['view', 'approve'] },
   ]),
   areaWithPages('loans', 'Loans and approvals', [
-    { key: 'applications', label: 'Applications', actions: ['view', 'create', 'edit', 'delete'] },
+    { key: 'applications', label: 'Applications', actions: ['view', 'create', 'edit', 'delete', 'change-hierarchy'] },
     { key: 'approvals', label: 'Approvals', actions: ['view', 'approve'] },
     { key: 'contracts', label: 'Contracts', actions: ['view', 'create', 'edit'] },
      { key: 'securities', label: 'Collateral & Guarantors', actions: ['view', 'edit'] },
@@ -267,59 +269,3 @@ export function togglePage(p: Permissions, m: Module, pageKeyName: string, actio
   return store(p, m, sets)
 }
 
-/* ---------- the sample roles ---------- */
-
-const everything: Permissions = Object.fromEntries(MODULES.map((m) => [m.key, [...m.actions]]))
-
-// the dashboard widgets a role sees, one grant per widget
-const widgets = (...keys: string[]): Permissions =>
-  Object.fromEntries(keys.map((k) => [`dashboard.${k}`, ['view']]))
-
-// SAMPLE ONLY: replaced by GET /api/roles later
-export const SAMPLE_ROLES: Role[] = [
-  { id: 1, name: 'Admin', description: 'Full access to the whole system', level: LEVELS[0], system: true, permissions: everything, created: '2026-01-05' },
-  {
-    id: 2,
-    name: 'Loan Officer',
-    description: 'Registers applicants, handles loan applications and records repayments',
-    level: LEVELS[1],
-    system: true,
-    permissions: {
-      ...widgets('loan-book', 'collections', 'status', 'approvals', 'kyc', 'overdue-collections'),
-      applicants: ['view', 'create', 'edit'],
-      loans: ['view', 'create', 'edit'],
-      repayments: ['view', 'create'],
-      collections: ['view'],
-      reports: ['view'],
-    },
-    created: '2026-01-05',
-  },
-  {
-    id: 3,
-    name: 'Approver',
-    description: 'Decides loan applications as part of the credit committee',
-    level: LEVELS[2],
-    system: true,
-    permissions: {
-      ...widgets('loan-book', 'status', 'approvals'),
-      applicants: ['view'],
-      loans: ['view', 'approve'],
-      reports: ['view'],
-    },
-    created: '2026-01-05',
-  },
-  {
-    id: 4,
-    name: 'Collector',
-    description: 'Follows up overdue loans and logs contact with borrowers',
-    level: null,
-    system: false,
-    permissions: {
-      ...widgets('collections', 'aging', 'npl', 'overdue-collections'),
-      applicants: ['view'],
-      repayments: ['view'],
-      collections: ['view', 'create', 'edit'],
-    },
-    created: '2026-04-18',
-  },
-]

@@ -111,9 +111,15 @@ export function DashboardHeader({
   return (
     <div
       className={`${
-        headerStyle === 'texture' ? 'texture-header-skin' : 'botanical-header-skin'
+        headerStyle === 'texture'
+          ? 'texture-header-skin'
+          : headerStyle === 'dots'
+            ? 'dots-header-skin'
+            : 'botanical-header-skin'
       } flex h-screen flex-col bg-white`}
     >
+      {/* fades the bottom of the patterned band into the white page */}
+      <div aria-hidden="true" className="header-band-fade" />
       <header className="relative z-30 flex h-12 shrink-0 items-center text-slate-700">
         <div
           className={`relative flex shrink-0 items-center px-3 transition-[width] duration-200 lg:justify-start lg:px-4 ${

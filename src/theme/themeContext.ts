@@ -13,7 +13,7 @@ export type ThemeSurface = (typeof themeSurfaces)[number]['id']
 export type ThemeSurfaceColors = Record<ThemeSurface, string>
 export type ThemeSurfaceOverrides = Partial<ThemeSurfaceColors>
 export type SidebarAppearance = 'light' | 'dark'
-export type HeaderStyle = 'botanical' | 'texture'
+export type HeaderStyle = 'botanical' | 'texture' | 'dots'
 
 export type ThemeContextValue = {
   palette: ThemePalette

@@ -6,8 +6,7 @@ import { permissionSchema } from './schemas'
 import { useApiRoles } from './users'
 import { permits, toPermissions, type Permissions, type Role } from '../pages/administration/roles/rolesData'
 
-// the approval chain looks these up by name, so they cannot be renamed or deleted
-const SYSTEM_ROLES = ['Admin', 'Loan Officer', 'Approver']
+import { ADMIN_ROLE } from '../pages/administration/roles/rolesContext'
 
 // GET /api/permissions, the read-only catalogue
 export const usePermissionCatalogue = () =>
@@ -34,7 +33,8 @@ export function useRoleList() {
     name: r.name,
     description: r.description,
     level: null, // lives in the approval hierarchy, not on the role
-    system: SYSTEM_ROLES.includes(r.name),
+    // role.is_sys from the database; Admin always counts, even if its flag is missing
+    system: r.isSystem || r.name === ADMIN_ROLE,
     permissions: toPermissions(grantQueries[i]?.data ?? []),
     created: r.created,
   }))
@@ -90,7 +90,12 @@ export function useRoleMutations() {
 
   const update = useMutation({
     mutationFn: async ({ id, name, description, permissions }: RoleBody & { id: number }) => {
-      await api(`/api/roles/${id}`, { method: 'PUT', body: { name, description, isActive: true } })
+      // raw CRUD PUT replaces the whole row, so the current row is read first and sent back with only
+      // the name and description changed (otherwise created_at and is_active would be wiped)
+      const raw = await api<unknown>(`/api/roles/${id}`)
+      const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+      const row = (r.data && typeof r.data === 'object' ? r.data : r) as Record<string, unknown>
+      await api(`/api/roles/${id}`, { method: 'PUT', body: { ...row, id, name, description } })
       await savePermissions(id, permissions)
     },
     onSuccess: refresh,

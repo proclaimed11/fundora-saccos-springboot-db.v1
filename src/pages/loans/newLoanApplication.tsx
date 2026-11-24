@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import {
@@ -24,7 +24,7 @@ import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { formatTzs } from '../../utils/format'
 import { STATUS as APPLICANT_STATUS } from '../applicants/applicantsData'
 import { useApplicants } from '../../api/applicants'
-import { toUser, useApiRoles, useApiUsers } from '../../api/users'
+import { toUser, useApiUsers } from '../../api/users'
 import { useAuth } from '../../auth/authContext'
 import {
   afterSubmit,
@@ -40,6 +40,8 @@ import {
 import { LoanCalculatorDrawer } from './loanCalculatorDrawer'
 import { useExistingDebts, useFinancialProfile, useSaveFinancialProfile } from '../../api/applicantRecords'
 import { ContractConfirmDialog } from './contractDialogs'
+import { useServerHierarchies, useServerLevels } from '../../api/approvalHierarchy'
+import { useRoles } from '../administration/roles/rolesContext'
 import {
   deleteCollateral,
   deleteGuarantor,
@@ -76,6 +78,9 @@ type GuarantorItem = {
   idNumber: string
   /** saved as guarantor.address */
   address: string
+  email: string
+  locationName: string
+  locationPin: string
   idVerified: boolean
   exposureVerified: boolean
   /** the guarantor's id on the server, null until it is first saved */
@@ -160,8 +165,6 @@ type Outcome = 'SUBMITTED' | 'CREDIT_APPROVED' | 'REJECTED'
 
 /* ---------- constants ---------- */
 
-// the roles whose users can handle a loan application (the role names on the Roles page)
-const OFFICER_ROLES = ['admin', 'loan officer']
 
 const COLLATERAL_TYPES = ['Land', 'House', 'Vehicle', 'Equipment', 'Other']
 // these need a copy of the title deed
@@ -172,6 +175,7 @@ const MIN_GUARANTORS = 1
 const MAX_GUARANTORS = 3
 
 const PHONE = /^0\d{9}$/
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // the stage name saved on the draft for each step (see PUT /api/loan-applications/{id}/progress)
 const STAGE: Record<StepId, string> = {
@@ -211,6 +215,9 @@ const newGuarantor = (): GuarantorItem => ({
   relationship: '',
   idNumber: '',
   address: '',
+  email: '',
+  locationName: '',
+  locationPin: '',
   idVerified: false,
   exposureVerified: false,
   serverId: null,
@@ -239,8 +246,12 @@ const newCollateral = (): CollateralItem => ({
 
 /* ---------- what is saved for each card (compared with what was saved last time) ---------- */
 
-function sigOfGuarantor(g: Pick<GuarantorItem, 'name' | 'phone' | 'idNumber' | 'address'>) {
-  return JSON.stringify([g.name.trim(), g.phone.trim(), g.idNumber.trim(), g.address.trim()])
+function sigOfGuarantor(
+  g: Pick<GuarantorItem, 'name' | 'phone' | 'idNumber' | 'address' | 'email' | 'locationName' | 'locationPin'>,
+) {
+  return JSON.stringify(
+    [g.name, g.phone, g.idNumber, g.address, g.email, g.locationName, g.locationPin].map((x) => x.trim()),
+  )
 }
 function checkSigOfGuarantor(g: Pick<GuarantorItem, 'idVerified' | 'exposureVerified'>) {
   return JSON.stringify([g.idVerified, g.exposureVerified])
@@ -265,6 +276,9 @@ function guarantorsFromServer(list: SavedGuarantor[]): GuarantorItem[] {
       phone: s.phone,
       idNumber: s.idNumber,
       address: s.address,
+      email: s.email,
+      locationName: s.locationName,
+      locationPin: s.locationPin,
       idVerified: s.idVerified,
       exposureVerified: s.exposureVerified,
       serverId: s.id,
@@ -473,6 +487,8 @@ type ApplicationSummaryProps = {
   applicantName: string
   applicantNo: string
   officerName: string
+  /** the approval hierarchy shown on Loan details (screen only for now) */
+  hierarchyName: string
   installment: number
   /** the earlier steps can be opened again */
   canEdit: boolean
@@ -487,6 +503,7 @@ function ApplicationSummary({
   applicantName,
   applicantNo,
   officerName,
+  hierarchyName,
   installment,
   canEdit,
   onEdit,
@@ -503,7 +520,7 @@ function ApplicationSummary({
         return [
           ['Applicant', shown(applicantName)],
           ['Applicant no.', shown(applicantNo)],
-          ['Loan officer', shown(officerName)],
+          ['Recorded by', shown(officerName)],
         ]
       case 'details':
         return [
@@ -517,6 +534,7 @@ function ApplicationSummary({
           ['Guarantor', yesNo(v.guarantorRequired)],
           ['Collateral', yesNo(v.collateralRequired)],
           ['Credit assessment', yesNo(v.creditAssessmentRequired)],
+          ['Approval hierarchy', shown(hierarchyName)],
         ]
       case 'guarantor':
         return v.guarantors.map((g, i) => [
@@ -640,7 +658,7 @@ function validate(step: StepId, v: FormValues): Errors {
 
   if (step === 'applicant') {
     need('applicantId', 'Select an applicant')
-    need('loanOfficerId', 'Select the loan officer handling this application')
+    need('loanOfficerId', 'Your user could not be read. Log out and back in, then try again.')
   }
 
   // the figures sent to the credit assessment when the application is submitted
@@ -671,8 +689,12 @@ function validateGuarantors(list: GuarantorItem[]): ItemErrors {
     if (!g.name.trim()) e.name = 'Enter the guarantor name'
     // relationship is optional: the guarantor table has no column for it yet, so it cannot be restored
     if (!g.address.trim()) e.address = 'Enter the guarantor address'
+    if (!g.locationName.trim()) e.locationName = 'Enter the location name'
+    if (!g.locationPin.trim()) e.locationPin = 'Enter the location pin'
     if (!g.phone.trim()) e.phone = 'Enter a phone number'
     else if (!PHONE.test(g.phone.trim())) e.phone = 'Enter 10 digits starting with 0'
+    if (!g.email.trim()) e.email = 'Enter an email address'
+    else if (!EMAIL.test(g.email.trim())) e.email = 'Enter a valid email address'
 
     const nida = g.idNumber.trim().toUpperCase()
     if (!nida) e.idNumber = 'Enter the guarantor NIDA number'
@@ -750,6 +772,100 @@ type CardShellProps = {
   children: React.ReactNode
 }
 
+/* ---------- guarantor consent by email code (screen only until the backend has an endpoint) ---------- */
+
+// same rules as the other codes in the API: expires in 5 minutes, a new one after 60 seconds
+const OTP_EXPIRY_SECONDS = 5 * 60
+const OTP_RESEND_SECONDS = 60
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+function GuarantorOtp({ email }: { email: string }) {
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [code, setCode] = useState('')
+
+  // ticks every second while a code is out
+  useEffect(() => {
+    if (sentAt === null) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [sentAt])
+
+  const send = () => {
+    const t = Date.now()
+    setSentAt(t)
+    setNow(t)
+    setCode('')
+  }
+
+  const elapsed = sentAt === null ? 0 : Math.floor((now - sentAt) / 1000)
+  const expiresIn = Math.max(0, OTP_EXPIRY_SECONDS - elapsed)
+  const resendIn = Math.max(0, OTP_RESEND_SECONDS - elapsed)
+  const emailOk = EMAIL.test(email.trim())
+
+  return (
+    <div className="space-y-2 rounded-md bg-gray-50 px-3 py-2.5">
+      <Group justify="space-between" gap="xs">
+        <Text size="sm" fw={600}>
+          Guarantor consent (optional)
+        </Text>
+        <Badge size="xs" variant="light" color="gray">
+          Preview, no email is sent yet
+        </Badge>
+      </Group>
+      <Text size="xs" c="dimmed">
+        The guarantor agrees to back this loan by entering the code emailed to them.
+      </Text>
+
+      <Stack gap={6}>
+        <Group gap="xs" align="flex-end">
+          {/* always shown; it opens once a code has been sent */}
+          <TextInput
+            label="6-digit code"
+            placeholder="000000"
+            size="sm"
+            w={200}
+            maxLength={6}
+            inputMode="numeric"
+            disabled={sentAt === null}
+            styles={{ input: { letterSpacing: 6, textAlign: 'center' } }}
+            value={code}
+            onChange={(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))}
+          />
+          {sentAt === null ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="light"
+              color="brand"
+              leftSection={<AppIcon name="mail" />}
+              disabled={!emailOk}
+              onClick={send}
+            >
+              Send code
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant="subtle" color="gray" disabled={resendIn > 0} onClick={send}>
+              {resendIn > 0 ? `Resend code in ${mmss(resendIn)}` : 'Resend code'}
+            </Button>
+          )}
+        </Group>
+        {sentAt === null ? (
+          <Text size="xs" c="dimmed">
+            {emailOk ? 'Send a code to the guarantor email to unlock this box.' : 'Enter the guarantor email above to send a code.'}
+          </Text>
+        ) : (
+          <Text size="xs" c={expiresIn === 0 ? 'red' : 'dimmed'}>
+            {expiresIn === 0
+              ? 'Code expired, send a new one.'
+              : `Code sent to ${email.trim()}. Expires in ${mmss(expiresIn)}`}
+          </Text>
+        )}
+      </Stack>
+    </div>
+  )
+}
+
 function CardShell({ title, verified, onRemove, children }: CardShellProps) {
   return (
     <div className="rounded-md border border-gray-200 p-4">
@@ -802,6 +918,14 @@ function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCar
             error={errors?.name}
           />
           <TextInput
+            label="NIDA number"
+            placeholder="NIDA123"
+            size="sm"
+            value={item.idNumber}
+            onChange={(e) => onChange({ idNumber: e.currentTarget.value })}
+            error={errors?.idNumber}
+          />
+          <TextInput
             label="Phone"
             placeholder="0713222111"
             size="sm"
@@ -812,32 +936,58 @@ function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCar
             error={errors?.phone}
           />
           <TextInput
+            label="Email"
+            placeholder="joseph@example.com"
+            size="sm"
+            type="email"
+            value={item.email}
+            onChange={(e) => onChange({ email: e.currentTarget.value })}
+            error={errors?.email}
+          />
+        </SimpleGrid>
+
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput
+            label="Address"
+            placeholder="Plot 12, Mikocheni, Dar es Salaam"
+            size="sm"
+            value={item.address}
+            onChange={(e) => onChange({ address: e.currentTarget.value })}
+            error={errors?.address}
+          />
+          <TextInput
+            label="Location name"
+            placeholder="Dar es Salaam City Center"
+            size="sm"
+            value={item.locationName}
+            onChange={(e) => onChange({ locationName: e.currentTarget.value })}
+            error={errors?.locationName}
+          />
+        </SimpleGrid>
+
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <TextInput
+            label="Location pin"
+            placeholder="TZ-DOM-001"
+            size="sm"
+            value={item.locationPin}
+            onChange={(e) => onChange({ locationPin: e.currentTarget.value })}
+            error={errors?.locationPin}
+          />
+          <TextInput
             label="Relationship to applicant (optional)"
             description="Not saved yet, the backend has no field for it"
+            // the note goes under the box so both boxes in this row line up
+            inputWrapperOrder={['label', 'input', 'description', 'error']}
             placeholder="Brother"
             size="sm"
             value={item.relationship}
             onChange={(e) => onChange({ relationship: e.currentTarget.value })}
             error={errors?.relationship}
           />
-          <TextInput
-            label="NIDA number"
-            placeholder="NIDA123"
-            size="sm"
-            value={item.idNumber}
-            onChange={(e) => onChange({ idNumber: e.currentTarget.value })}
-            error={errors?.idNumber}
-          />
         </SimpleGrid>
 
-        <TextInput
-          label="Address"
-          placeholder="Plot 12, Mikocheni, Dar es Salaam"
-          size="sm"
-          value={item.address}
-          onChange={(e) => onChange({ address: e.currentTarget.value })}
-          error={errors?.address}
-        />
+        <GuarantorOtp email={item.email} />
 
         <div className="space-y-2 rounded-md bg-gray-50 px-3 py-2.5">
           <Text size="sm" fw={600}>
@@ -990,26 +1140,36 @@ export function NewLoanApplicationPage() {
   const eligible = (applicantsQuery.data ?? []).filter((a) => a.status === 'KYC_APPROVED')
   const applicantOptions = eligible.map((a) => ({ value: String(a.id), label: `${a.name} · ${a.applicantNo}` }))
 
-  // GET /api/users (+ /api/roles for the role names): active users whose role is Admin or Loan Officer
-  const usersQuery = useApiUsers()
-  const { data: roles = [], isLoading: rolesLoading } = useApiRoles()
-  const officers = (usersQuery.data ?? [])
-    .map((raw) => toUser(raw, roles))
-    .filter((u) => u.id > 0 && u.active && OFFICER_ROLES.includes((u.role ?? '').trim().toLowerCase()))
-  const officerOptions = officers
-    .map((u) => ({ value: String(u.id), label: `${u.name !== 'Unknown' ? u.name : u.username} · ${u.role}` }))
-    .sort((a, b) => a.label.localeCompare(b.label))
-
-  // the officer filled in by default: the logged-in user when they are an active Admin or Loan Officer,
-  // otherwise the only Loan Officer when there is exactly one; else the field is left to pick
+  // "Recorded by": the logged-in user who captures the application, saved as loan_officer_id.
+  // A resumed draft keeps the user who started it
   const { user: me } = useAuth()
-  const onlyLoanOfficers = officers.filter((u) => (u.role ?? '').trim().toLowerCase() === 'loan officer')
-  const defaultOfficerId =
-    me && officers.some((u) => u.id === me.id)
-      ? String(me.id)
-      : onlyLoanOfficers.length === 1
-        ? String(onlyLoanOfficers[0].id)
-        : ''
+  // GET /api/users is Admin-only, so it is used just to name another user's draft; a failure is fine
+  const usersQuery = useApiUsers()
+  const userNameOf = (id: string): string => {
+    if (!id) return ''
+    if (me && String(me.id) === id) return me.name || me.username
+    const u = (usersQuery.data ?? []).map((raw) => toUser(raw, [])).find((x) => String(x.id) === id)
+    return u ? (u.name !== 'Unknown' ? u.name : u.username) : `User #${id}`
+  }
+
+  /* ---------- approval hierarchy (screen only: the backend cannot store it per loan yet) ---------- */
+
+  // GET /api/approval-hierarchys + their levels: active hierarchies with at least one active level
+  const { can } = useRoles()
+  const canChangeHierarchy = can('loans', 'change-hierarchy', 'applications')
+  const hierarchiesQuery = useServerHierarchies()
+  const hierarchyLevels = useServerLevels((hierarchiesQuery.data ?? []).map((h) => h.id))
+  const hierarchyOptions = (hierarchiesQuery.data ?? [])
+    .map((h) => ({ ...h, levels: hierarchyLevels.filter((l) => l.hierarchyId === h.id && l.isActive) }))
+    .filter((h) => h.isActive && h.levels.length > 0)
+  // null = not changed, so the hierarchy in use (is_default = true) is shown
+  const [hierarchyChoice, setHierarchyChoice] = useState<number | null>(null)
+  const defaultHierarchy = hierarchyOptions.find((h) => h.isDefault)
+  const chosenHierarchy = hierarchyOptions.find((h) => h.id === hierarchyChoice) ?? defaultHierarchy
+  const hierarchyLabel = (h: (typeof hierarchyOptions)[number]) =>
+    `${h.name} · ${h.levels.length} ${h.levels.length === 1 ? 'level' : 'levels'}${h.isDefault ? ' (in use)' : ''}`
+
+  const defaultOfficerId = me ? String(me.id) : ''
   const [values, setValues] = useState<FormValues>(() => ({ ...emptyValues(), applicantId: preselectedId }))
   const [errors, setErrors] = useState<Errors>({})
   const [guarantorErrors, setGuarantorErrors] = useState<ItemErrors>({})
@@ -1039,15 +1199,10 @@ export function NewLoanApplicationPage() {
   // the drawer that shows how the installment is calculated
   const [calculatorOpen, setCalculatorOpen] = useState(false)
 
-  // once the users have loaded, an empty Loan officer field gets the default officer, one time only,
-  // so a choice made by hand (or restored from a draft) is never overwritten
-  const [officerDefaulted, setOfficerDefaulted] = useState(false)
-  // the role names are needed to tell who is an officer, so both lists have to be in
-  if (!officerDefaulted && !usersQuery.isLoading && !rolesLoading) {
-    setOfficerDefaulted(true)
-    if (!values.loanOfficerId && defaultOfficerId) {
-      setValues((prev) => (prev.loanOfficerId ? prev : { ...prev, loanOfficerId: defaultOfficerId }))
-    }
+  // an empty "Recorded by" (new form, or a draft saved without one) is the logged-in user;
+  // a draft's own recorder is never overwritten
+  if (!values.loanOfficerId && defaultOfficerId) {
+    setValues((prev) => (prev.loanOfficerId ? prev : { ...prev, loanOfficerId: defaultOfficerId }))
   }
 
   // guarantor, collateral and credit steps only exist when the application needs them
@@ -1056,7 +1211,8 @@ export function NewLoanApplicationPage() {
   const isLast = active === steps.length - 1
 
   const applicant = eligible.find((a) => String(a.id) === values.applicantId)
-  const officer = officerOptions.find((o) => o.value === values.loanOfficerId)
+  const recorderName = userNameOf(values.loanOfficerId)
+  const recordedByMe = !!me && values.loanOfficerId === String(me.id)
 
   // GET /api/existing-debts: debts with other lenders from the applicant's Financial tab; the backend reads the
   // same records during the credit assessment, so they are shown and counted in the estimate
@@ -1170,7 +1326,8 @@ export function NewLoanApplicationPage() {
 
   // /loan-applications/new?applicantId=1 (Continue application) opens that applicant's draft straight away
   const [autoResumeTried, setAutoResumeTried] = useState(false)
-  if (!autoResumeTried && preselectedId && latestQuery.isFetched) {
+  // isFetchedAfterMount: wait for a fresh read, not the copy cached the last time the wizard was open
+  if (!autoResumeTried && preselectedId && latestQuery.isFetchedAfterMount) {
     setAutoResumeTried(true)
     if (latestQuery.data && values.applicantId === preselectedId) applyDraft(latestQuery.data)
   }
@@ -1326,7 +1483,9 @@ export function NewLoanApplicationPage() {
 
   const guarantorHasData = (g: GuarantorItem) =>
     g.serverId !== null ||
-    [g.name, g.phone, g.idNumber, g.address, g.relationship].some((x) => x.trim() !== '') ||
+    [g.name, g.phone, g.idNumber, g.address, g.email, g.locationName, g.locationPin, g.relationship].some(
+      (x) => x.trim() !== '',
+    ) ||
     g.idVerified ||
     g.exposureVerified
   const collateralHasData = (c: CollateralItem) =>
@@ -1414,6 +1573,9 @@ export function NewLoanApplicationPage() {
               phone: g.phone.trim(),
               idNumber: g.idNumber.trim(),
               address: g.address.trim(),
+              email: g.email.trim(),
+              locationName: g.locationName.trim(),
+              locationPin: g.locationPin.trim(),
             })
           : g.serverId
       let checkSig = g.savedCheckSig
@@ -1546,7 +1708,7 @@ export function NewLoanApplicationPage() {
           applicationNo: 'DRAFT',
           applicantId: Number(values.applicantId) || 0,
           applicantName: applicant?.name ?? '',
-          loanOfficer: officer?.label ?? '',
+          loanOfficer: recorderName,
           requestedAmount: values.requestedAmount,
           interestMethod: values.interestMethod,
           interestRate: values.interestRate,
@@ -1692,6 +1854,7 @@ export function NewLoanApplicationPage() {
 
   function startOver() {
     setValues({ ...emptyValues(), loanOfficerId: defaultOfficerId })
+    setHierarchyChoice(null)
     setErrors({})
     setGuarantorErrors({})
     setCollateralErrors({})
@@ -1728,7 +1891,8 @@ export function NewLoanApplicationPage() {
       submitted={submitted}
       applicantName={applicant?.name ?? ''}
       applicantNo={applicant?.applicantNo ?? ''}
-      officerName={officer?.label ?? ''}
+      officerName={recorderName}
+      hierarchyName={chosenHierarchy?.name ?? ''}
       installment={installment}
       canEdit={!submitted}
       onEdit={setActive}
@@ -1832,19 +1996,15 @@ export function NewLoanApplicationPage() {
                       : undefined
                   }
                 />
-                <LoadedSelect
-                  label="Loan officer"
-                  description="Admins and Loan Officers"
-                  placeholder="Select loan officer"
-                  emptyText="No active Admin or Loan Officer yet"
-                  what="users"
-                  loading={usersQuery.isLoading}
-                  error={usersQuery.error}
-                  onRetry={() => void usersQuery.refetch()}
-                  data={officerOptions}
-                  value={values.loanOfficerId}
-                  onChange={(v) => set('loanOfficerId', v)}
-                  fieldError={errors.loanOfficerId}
+                {/* who captures this application: not chosen, it is the logged-in user (or the draft's recorder) */}
+                <TextInput
+                  label="Recorded by"
+                  description={recordedByMe ? 'You, the logged-in user' : 'The user who started this draft'}
+                  size="sm"
+                  readOnly
+                  value={recorderName}
+                  rightSection={<AppIcon name="lock-keyhole" size={14} className="text-gray-400" />}
+                  error={errors.loanOfficerId}
                 />
               </SimpleGrid>
 
@@ -1857,16 +2017,6 @@ export function NewLoanApplicationPage() {
                   </Text>
                   <Button type="button" size="compact-xs" variant="light" mt={8} onClick={() => navigate('/kyc-review')}>
                     Go to KYC Review
-                  </Button>
-                </Alert>
-              )}
-              {!usersQuery.isLoading && !usersQuery.error && officerOptions.length === 0 && (
-                <Alert color="yellow" variant="light" icon={<AppIcon name="triangle-alert" />}>
-                  <Text size="sm">
-                    No active user has the Admin or Loan Officer role. Add or activate one on the Users page.
-                  </Text>
-                  <Button type="button" size="compact-xs" variant="light" mt={8} onClick={() => navigate('/users')}>
-                    Go to Users
                   </Button>
                 </Alert>
               )}
@@ -2025,6 +2175,36 @@ export function NewLoanApplicationPage() {
                     onChange={(e) => set('creditAssessmentRequired', e.currentTarget.checked)}
                   />
                 </div>
+
+                {/* who approves this loan: the hierarchy in use, or another one for users allowed to change it.
+                    Screen only for now, the backend cannot store a hierarchy per loan yet */}
+                <Select
+                  label="Approval hierarchy"
+                  description={
+                    chosenHierarchy
+                      ? `Path: ${chosenHierarchy.levels.map((l) => `${l.levelName} (${l.requiredRole})`).join(' → ')}${
+                          canChangeHierarchy ? '' : '. Set by your organization.'
+                        }`
+                      : undefined
+                  }
+                  placeholder={
+                    hierarchiesQuery.isPending
+                      ? 'Loading hierarchies…'
+                      : hierarchiesQuery.isError
+                        ? 'Could not load the hierarchies'
+                        : 'No hierarchy with an active level'
+                  }
+                  size="sm"
+                  data={hierarchyOptions.map((h) => ({ value: String(h.id), label: hierarchyLabel(h) }))}
+                  value={chosenHierarchy ? String(chosenHierarchy.id) : null}
+                  onChange={(v) => setHierarchyChoice(v ? Number(v) : null)}
+                  allowDeselect={false}
+                  readOnly={!canChangeHierarchy}
+                  disabled={hierarchiesQuery.isPending || submitted}
+                  rightSection={
+                    canChangeHierarchy ? undefined : <AppIcon name="lock-keyhole" size={14} className="text-gray-400" />
+                  }
+                />
               </Stack>
 
               <div className="space-y-5 self-start rounded-md bg-gray-50 p-4">
@@ -2359,7 +2539,7 @@ export function NewLoanApplicationPage() {
                 <div>
                   <SectionTitle>Application</SectionTitle>
                   <Field label="Applicant" value={applicant?.name ?? ''} />
-                  <Field label="Loan officer" value={officer?.label ?? ''} />
+                  <Field label="Recorded by" value={recorderName} />
                   <Field
                     label="Requested amount"
                     value={values.requestedAmount === '' ? '' : formatTzs(values.requestedAmount)}
@@ -2378,6 +2558,14 @@ export function NewLoanApplicationPage() {
                     <Field
                       label="Credit assessment"
                       value={values.creditAssessmentRequired ? 'Required' : 'Switched off'}
+                    />
+                    <Field
+                      label="Approval hierarchy"
+                      value={
+                        chosenHierarchy
+                          ? `${chosenHierarchy.name} (${chosenHierarchy.levels.map((l) => l.levelName).join(' → ')})`
+                          : '—'
+                      }
                     />
                   </div>
 
@@ -2512,7 +2700,7 @@ export function NewLoanApplicationPage() {
                   Back to applications
                 </Button>
                 <Button type="button" color="brand" onClick={startOver}>
-                  Start another
+                  New application
                 </Button>
               </Group>
             </Stack>

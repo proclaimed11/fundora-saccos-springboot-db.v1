@@ -6,33 +6,37 @@ import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Text } from '@mantine/c
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../../components/customTable/customTable'
-import { CustomTabs } from '../../../components/customTabs'
 import { ContractConfirmDialog } from '../../loans/contractDialogs'
 import { RoleDialog, type RoleInput } from './roleDialogs'
 import { KIND, MODULES, actionLabel, areaCount, hasPages, isSplit, pageActions, permissionCount, type Role } from './rolesData'
 import { usePageAccess } from '../../auth/usePageAccess'
 import { PageState } from '../../../components/pageState'
 import { useRoleList, useRoleMutations } from '../../../api/roles'
+import { useRoleUsage } from '../../../api/approvalHierarchy'
 import { useApiUsers, toUser } from '../../../api/users'
 import type { User } from '../users/usersData'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
-type TabKey = 'all' | 'system' | 'custom'
 type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
 type DialogState = { kind: 'create' } | { kind: 'edit' | 'delete'; id: number } | null
 
-type Row = Role & { userCount: number; permissionCount: number }
+/** usedBy: the approval levels that ask for this role (required_role stores the role's name) */
+type Row = Role & { userCount: number; permissionCount: number; usedBy: string[] }
 
-const TAB_EMPTY: Record<TabKey, string> = {
-  all: 'No roles yet',
-  system: 'No system roles',
-  custom: 'No custom roles have been created',
+// the approval levels keep the role's name, so a renamed or deleted role would leave them without approvers
+function nameLockReason(r: Row): string | null {
+  if (r.system) return 'Admin is the system role, so its name stays fixed.'
+  if (r.usedBy.length > 0) {
+    return `Used by ${r.usedBy.join(', ')}. Change ${r.usedBy.length === 1 ? 'that level' : 'those levels'} on the Approval Hierarchy page first.`
+  }
+  return null
 }
 
 // our own rule, the API does not say when a role can be deleted
 function deleteBlockReason(r: Row): string | null {
-  if (r.system) return 'This role is needed by the approval chain.'
+  if (r.system) return 'Admin is the system role and cannot be deleted.'
+  if (r.usedBy.length > 0) return nameLockReason(r)
   if (r.userCount > 0) return `${r.userCount} ${r.userCount === 1 ? 'user has' : 'users have'} this role. Move them to another role first.`
   return null
 }
@@ -56,14 +60,6 @@ function SectionTitle({ children }: { children: string }) {
   )
 }
 
-function TypeBadge({ system }: { system: boolean }) {
-  return (
-    <Badge variant={system ? 'light' : 'outline'} color={system ? 'gray' : 'brand'} radius="sm" size="sm">
-      {system ? 'System' : 'Custom'}
-    </Badge>
-  )
-}
-
 /* ---------- role drawer ---------- */
 
 type DrawerProps = {
@@ -80,17 +76,16 @@ function RoleDrawerBody({ row: r, members, onEdit, onDelete }: DrawerProps) {
   const tiles = [
     { label: 'Users', value: String(r.userCount) },
     { label: 'Permissions', value: String(r.permissionCount) },
-    { label: 'Approval level', value: r.level ?? 'None' },
+    { label: 'Approval levels', value: String(r.usedBy.length) },
   ]
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <TypeBadge system={r.system} />
+      {r.created && (
         <Text size="xs" c="dimmed">
           Created {dayjs(r.created).format('MMM D, YYYY')}
         </Text>
-      </div>
+      )}
 
       <Text size="sm" c="dimmed">
         {r.description}
@@ -200,8 +195,7 @@ function RoleDrawerBody({ row: r, members, onEdit, onDelete }: DrawerProps) {
       <div>
         <SectionTitle>Role details</SectionTitle>
         <Field label="Role name" value={r.name} />
-        <Field label="Type" value={r.system ? 'System role' : 'Custom role'} />
-        <Field label="Approval level" value={r.level ?? 'None'} />
+        <Field label="Approval levels" value={r.usedBy.length > 0 ? r.usedBy.join(', ') : 'None'} />
       </div>
 
       {blocked && (
@@ -240,7 +234,8 @@ export function RolesPage() {
 
   const users = useMemo(() => (usersQuery.data ?? []).map((u) => toUser(u, apiRoles)), [usersQuery.data, apiRoles])
   const usersWith = (role: string) => users.filter((u) => u.role === role)
-  const [tab, setTab] = useState<TabKey>('all')
+  // which approval levels ask for each role (GET /api/approval-hierarchys + /api/approval-levels)
+  const { usage } = useRoleUsage()
   const [dialog, setDialog] = useState<DialogState>(null)
   const [notice, setNotice] = useState<Notice>(null)
   const { canCreate, canEdit, canDelete } = usePageAccess('administration', 'roles')
@@ -256,18 +251,16 @@ export function RolesPage() {
     ...r,
     userCount: usersWith(r.name).length,
     permissionCount: permissionCount(r.permissions),
+    usedBy: usage[r.name.trim()] ?? [],
   }))
 
-  const system = rows.filter((r) => r.system)
-  const custom = rows.filter((r) => !r.system)
-  const tabData: Record<TabKey, Row[]> = { all: rows, system, custom }
   const withoutRole = users.filter((u) => !u.role).length
+  const inApproval = rows.filter((r) => r.usedBy.length > 0).length
 
   // here `color` is the icon color
   const stats = [
     { label: 'Total Roles', value: rows.length, icon: 'key-round', color: '#45bdfc' },
-    { label: 'System Roles', value: system.length, icon: 'lock-keyhole', color: '#8e44ad' },
-    { label: 'Custom Roles', value: custom.length, icon: 'pencil', color: 'var(--app-brand)' },
+    { label: 'Roles In Approval Levels', value: inApproval, icon: 'network', color: '#8e44ad' },
     { label: 'Users Without A Role', value: withoutRole, icon: 'users', color: '#e08a1e' },
   ]
 
@@ -287,11 +280,11 @@ export function RolesPage() {
       if (dialog?.kind === 'create') {
         await create.mutateAsync({ name: input.name, description: input.description, permissions: input.permissions })
         setNotice({ color: 'green', text: `Role ${input.name} was created.` })
-        setTab('all')
       } else if (dialogRow) {
         await update.mutateAsync({
           id: dialogRow.id,
-          name: dialogRow.system ? dialogRow.name : input.name,
+          // a locked name (Admin, or a role used by an approval level) is never changed
+          name: nameLockReason(dialogRow) ? dialogRow.name : input.name,
           description: input.description,
           permissions: input.permissions,
         })
@@ -336,15 +329,22 @@ export function RolesPage() {
       exportValue: (r) => `${r.name} (${r.description})`,
     },
     {
-      accessor: 'level',
-      header: 'Approval level',
+      accessor: 'usedBy',
+      header: 'Approval levels',
+      sortable: false,
       render: (r) =>
-        r.level ? (
-          <span className="whitespace-nowrap text-sm text-gray-800">{r.level}</span>
+        r.usedBy.length > 0 ? (
+          <div className="max-w-[260px] space-y-0.5">
+            {r.usedBy.map((u) => (
+              <div key={u} className="truncate text-xs text-gray-700" title={u}>
+                {u}
+              </div>
+            ))}
+          </div>
         ) : (
           <span className="text-xs text-gray-400">None</span>
         ),
-      exportValue: (r) => r.level ?? 'None',
+      exportValue: (r) => (r.usedBy.length > 0 ? r.usedBy.join('; ') : 'None'),
     },
     {
       accessor: 'permissionCount',
@@ -366,13 +366,6 @@ export function RolesPage() {
       header: 'Users',
       render: (r) => <span className="text-sm text-gray-800">{r.userCount}</span>,
       exportValue: (r) => r.userCount,
-    },
-    {
-      accessor: 'system',
-      header: 'Type',
-      sortable: false,
-      render: (r) => <TypeBadge system={r.system} />,
-      exportValue: (r) => (r.system ? 'System' : 'Custom'),
     },
     { accessor: 'created', header: 'Created', type: 'date' },
     {
@@ -460,7 +453,7 @@ export function RolesPage() {
           )}
 
           {/* row 1: key numbers */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {stats.map((s) => (
               <StatWidget key={s.label} {...s} />
             ))}
@@ -468,33 +461,21 @@ export function RolesPage() {
 
           {/* row 2: table in a plain card */}
           <div className={`${CARD} p-4`}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <CustomTabs
-                ariaLabel="Role filters"
-                className="w-fit p-0"
-                value={tab}
-                onChange={(value) => setTab(value as TabKey)}
-                tabs={[
-                  { value: 'all', label: `All (${rows.length})` },
-                  { value: 'system', label: `System (${system.length})` },
-                  { value: 'custom', label: `Custom (${custom.length})` },
-                ]}
-              />
-              <Text size="xs" c="dimmed">
-                System roles drive the approval chain and cannot be deleted
-              </Text>
-            </div>
+            <Text size="xs" c="dimmed" mb="sm">
+              A role used by an approval level cannot be renamed or deleted. Admin is the system role and always has
+              every permission.
+            </Text>
 
             <CustomTable<Row>
               size="md"
-              data={tabData[tab]}
+              data={rows}
               columns={columns}
               searchInput
               searchPlaceholder="Search role"
               searchKeys={['name', 'description']}
               filters={{ created: 'date' }}
               defaultSort={{ accessor: 'name', direction: 'asc' }}
-              noRecordText={TAB_EMPTY[tab]}
+              noRecordText="No roles yet"
               onRowClick={(row) => openView(row.id)}
               exportCsv
               exportFileName="roles"
@@ -521,6 +502,7 @@ export function RolesPage() {
         opened={dialog?.kind === 'create' || dialog?.kind === 'edit'}
         role={dialog?.kind === 'edit' ? (dialogRow ?? null) : null}
         existingNames={roles.map((r) => r.name)}
+        nameLockedReason={dialog?.kind === 'edit' && dialogRow ? nameLockReason(dialogRow) : null}
         onClose={() => setDialog(null)}
         onSubmit={save}
       />

@@ -130,13 +130,24 @@ export async function saveLoanProgress(id: number, body: ProgressBody) {
 /* ---------- GET /api/loan-applications/latest?applicantId= ---------- */
 
 // "No in-progress application found" comes back as success: false, which is an answer, not a failure
+// /latest may answer only a summary (id, status, currentStage, finalized), so it is used to find WHICH draft,
+// and the full row (amount, terms, required switches...) is read with GET /api/loan-applications/{id}
 export async function getLatestLoanApplication(applicantId: number): Promise<LoanDraft | null> {
+  let summary: LoanDraft
   try {
     const res = await api(`/api/loan-applications/latest?applicantId=${applicantId}`, { schema: wrapped })
-    return toDraft(res.data)
+    summary = toDraft(res.data)
   } catch (err) {
     if (err instanceof ApiError && /no in-progress/i.test(err.message)) return null
     throw err
+  }
+  const full = await getLoanApplication(summary.id)
+  // the stage and status of /latest win if the full row leaves them out
+  return {
+    ...full,
+    applicantId: full.applicantId || summary.applicantId || applicantId,
+    currentStage: full.currentStage || summary.currentStage,
+    status: full.status || summary.status,
   }
 }
 
@@ -212,6 +223,9 @@ const guarantorRowSchema = z.object({
   phone: z.string().nullish(),
   idNumber: z.string().nullish(),
   address: z.string().nullish(),
+  email: z.string().nullish(),
+  locationName: z.string().nullish(),
+  locationPin: z.string().nullish(),
   status: z.string().nullish(),
 })
 
@@ -258,6 +272,9 @@ export type SavedGuarantor = {
   phone: string
   idNumber: string
   address: string
+  email: string
+  locationName: string
+  locationPin: string
   idVerified: boolean
   exposureVerified: boolean
 }
@@ -304,6 +321,9 @@ export async function getDraftGuarantors(applicationId: number): Promise<SavedGu
         phone: g.phone ?? '',
         idNumber: g.idNumber ?? '',
         address: g.address ?? '',
+        email: g.email ?? '',
+        locationName: g.locationName ?? '',
+        locationPin: g.locationPin ?? '',
         idVerified: check?.idVerified ?? verified,
         exposureVerified: check?.exposureVerified ?? verified,
       }
@@ -343,7 +363,16 @@ export async function getDraftCollaterals(applicationId: number): Promise<SavedC
     })
 }
 
-export type GuarantorFields = { fullName: string; phone: string; idNumber: string; address: string }
+// gps_location is left out: the API doc does not say how a map point is sent
+export type GuarantorFields = {
+  fullName: string
+  phone: string
+  idNumber: string
+  address: string
+  email: string
+  locationName: string
+  locationPin: string
+}
 
 // POST /api/guarantors, or PUT /api/guarantors/{id}; answers the guarantor's id
 export async function saveGuarantor(applicationId: number, id: number | null, f: GuarantorFields) {
@@ -683,6 +712,60 @@ export async function getApprovalLevels(): Promise<ApprovalLevel[]> {
       requiredRole: str(l.requiredRole),
     }))
     .sort((a, b) => a.levelNo - b.levelNo)
+}
+
+/* ---------- approvals: GET /api/approvals and the approve / reject decisions ---------- */
+
+export type ApprovalDecision = {
+  id: number
+  applicationId: number
+  levelId: number | null
+  /** APPROVED or REJECTED */
+  decision: string
+  approverId: number | null
+  comments: string
+  decidedAt: string
+}
+
+const approvalsKey = ['approvals'] as const
+
+// every decision made so far (raw CRUD, read-only use): one row per application and level
+export const useApprovalDecisions = () =>
+  useQuery({
+    queryKey: approvalsKey,
+    queryFn: async (): Promise<ApprovalDecision[]> => {
+      const raw = await api<unknown>('/api/approvals')
+      const list = Array.isArray(raw) ? raw : arr(asRecord(raw).data)
+      return list
+        .map(asRecord)
+        .map((a) => ({
+          id: num(a.id) ?? 0,
+          applicationId: num(pick(a, 'applicationId')) ?? num(asRecord(a.application).id) ?? 0,
+          levelId: num(pick(a, 'approvalLevelId', 'levelId')) ?? num(asRecord(pick(a, 'approvalLevel', 'level')).id),
+          decision: str(a.decision).toUpperCase(),
+          approverId: idOf(pick(a, 'approverId', 'approver')),
+          comments: str(a.comments),
+          decidedAt: str(a.decidedAt),
+        }))
+        .filter((a) => a.id > 0)
+        .sort((a, b) => a.id - b.id)
+    },
+  })
+
+// POST /api/loan-origination/applications/{id}/approve or /reject { approverId, comments }.
+// The backend decides the application's current level and checks the approver's role against it
+export async function decideApplication(
+  id: number,
+  decision: 'approve' | 'reject',
+  body: { approverId: number; comments: string },
+) {
+  try {
+    await api<unknown>(`/api/loan-origination/applications/${id}/${decision}`, { method: 'POST', body })
+  } finally {
+    // the list and each application's own reads (record, workflow...) are all under 'loan-applications'
+    void refresh()
+    void queryClient.invalidateQueries({ queryKey: approvalsKey })
+  }
 }
 
 /* ---------- POST /api/loan-applications/{id}/finalize ---------- */

@@ -17,7 +17,15 @@ const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : Array.isArray(
 
 /* ---------- roles ---------- */
 
-export type ApiRole = { id: number; name: string; description: string; isActive: boolean; created: string }
+export type ApiRole = {
+  id: number
+  name: string
+  description: string
+  isActive: boolean
+  /** role.is_sys: a built-in role (today only Admin), it cannot be renamed or deleted */
+  isSystem: boolean
+  created: string
+}
 
 const toRole = (raw: unknown): ApiRole => {
   const r = rec(raw)
@@ -26,6 +34,7 @@ const toRole = (raw: unknown): ApiRole => {
     name: str(r.name),
     description: str(r.description),
     isActive: bool(r.isActive ?? r.active, true),
+    isSystem: bool(r.isSys ?? r.is_sys ?? r.sys ?? r.system),
     created: day(r.createdAt) ?? '',
   }
 }

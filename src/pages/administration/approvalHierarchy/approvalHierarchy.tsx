@@ -1,14 +1,25 @@
 import { AppIcon } from '../../../components/appIcon'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Menu, Switch, Text } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Menu, Skeleton, Text } from '@mantine/core'
+import {
+  createHierarchy as createServerHierarchy,
+  createLevel as createServerLevel,
+  deleteHierarchy,
+  deleteLevel,
+  setLevelActive,
+  swapLevels,
+  setDefaultHierarchy,
+  updateHierarchy,
+  useServerHierarchies,
+  useServerLevels,
+} from '../../../api/approvalHierarchy'
 import { DashboardLayout } from '../../../components/layout/dashboardLayout'
 import { StatWidget } from '../../../components/statsWidgets'
 import { ContractConfirmDialog } from '../../loans/contractDialogs'
 import { HierarchyDialog, LevelDialog, type LevelInput } from './approvalHierarchyDialogs'
 import {
-  ADMIN_ONLY_LEVEL,
   SAMPLE_HIERARCHIES,
   SAMPLE_LEVELS,
   activeUsersWithRole,
@@ -19,7 +30,7 @@ import { usePageAccess } from '../../auth/usePageAccess'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
-type Notice = { text: string; color: 'green' | 'blue' } | null
+type Notice = { text: string; color: 'green' | 'blue' | 'red' } | null
 
 type DialogState =
   | {
@@ -29,7 +40,6 @@ type DialogState =
         | 'hierarchy-delete'
         | 'hierarchy-default'
         | 'level-create'
-        | 'mode'
     }
   | { kind: 'level-edit' | 'level-delete'; id: number }
   | null
@@ -44,13 +54,36 @@ function SectionTitle({ children }: { children: string }) {
   )
 }
 
+// approval_hierarchy id 1 is the System Hierarchy (Admin approves only). There is no column for it,
+// so this page treats it as read-only by its id; the API itself does not block changes to it
+const SYSTEM_HIERARCHY_SERVER_ID = 1
+const isSystem = (h: { id: number }) => h.id === -SYSTEM_HIERARCHY_SERVER_ID
+
 function HierarchyBadges({ h }: { h: ApprovalHierarchy }) {
   return (
     <>
-      {h.isDefault && (
-        <Badge variant="light" color="brand" radius="sm" size="sm">
-          Default
+      {isSystem(h) && (
+        <Badge variant="light" color="dark" radius="sm" size="sm" leftSection={<AppIcon name="lock-keyhole" size={11} />}>
+          System
         </Badge>
+      )}
+      {/* negative id = a real row from approval_hierarchy, the others are still samples */}
+      {h.id < 0 && (
+        <Badge variant="light" color="teal" radius="sm" size="sm">
+          Saved
+        </Badge>
+      )}
+      {/* is_default = the hierarchy in use; the System Hierarchy is the fallback when no other is chosen */}
+      {h.isDefault ? (
+        <Badge variant="light" color="brand" radius="sm" size="sm">
+          {isSystem(h) ? 'System default · In use' : 'Organization default · In use'}
+        </Badge>
+      ) : (
+        isSystem(h) && (
+          <Badge variant="light" color="gray" radius="sm" size="sm">
+            Fallback · Not in use
+          </Badge>
+        )
       )}
       <Badge variant="light" color={h.isActive ? 'green' : 'gray'} radius="sm" size="sm">
         {h.isActive ? 'Active' : 'Inactive'}
@@ -65,17 +98,39 @@ export function ApprovalHierarchyPage() {
   const navigate = useNavigate()
 
   // UI only: changes made in this session, nothing is saved yet
-  const [hierarchies, setHierarchies] = useState<ApprovalHierarchy[]>(SAMPLE_HIERARCHIES)
-  const [levels, setLevels] = useState<ApprovalLevel[]>(SAMPLE_LEVELS)
-  const [selectedId, setSelectedId] = useState<number>(
-    SAMPLE_HIERARCHIES.find((h) => h.isDefault)?.id ?? SAMPLE_HIERARCHIES[0].id,
+  const [sampleHierarchies, setHierarchies] = useState<ApprovalHierarchy[]>(SAMPLE_HIERARCHIES)
+  // real rows from approval_hierarchy, listed after the samples. Their local id is the server id made
+  // negative, so they never share an id (or the sample levels) with a sample hierarchy
+  const serverHierarchiesQuery = useServerHierarchies()
+  const serverHierarchies = serverHierarchiesQuery.data
+  const hierarchies: ApprovalHierarchy[] = useMemo(
+    () =>
+      [
+        ...sampleHierarchies,
+        ...(serverHierarchies ?? []).map((h) => ({
+          id: -h.id,
+          name: h.name,
+          isDefault: h.isDefault,
+          isActive: h.isActive,
+          created: h.createdAt ? h.createdAt.slice(0, 10) : '',
+        })),
+      ].sort((a, b) => Number(isSystem(b)) - Number(isSystem(a))), // the System Hierarchy is listed first
+    [sampleHierarchies, serverHierarchies],
   )
+  const [sampleLevels, setLevels] = useState<ApprovalLevel[]>(SAMPLE_LEVELS)
+  // the real levels of every saved hierarchy, with negative ids like the hierarchies above
+  const serverLevels = useServerLevels((serverHierarchiesQuery.data ?? []).map((h) => h.id))
+  // kept stable so an open level dialog is not reset on every render
+  const levels: ApprovalLevel[] = useMemo(
+    () => [...sampleLevels, ...serverLevels.map((l) => ({ ...l, id: -l.id, hierarchyId: -l.hierarchyId }))],
+    [sampleLevels, serverLevels],
+  )
+  // 0 = nothing picked yet, the default hierarchy is shown
+  const [selectedId, setSelectedId] = useState<number>(0)
   const [dialog, setDialog] = useState<DialogState>(null)
   const [notice, setNotice] = useState<Notice>(null)
-  // UI only: true means the Admin approves everything alone and no hierarchy is used
-  const [adminOnly, setAdminOnly] = useState(false)
   const { canCreate, canEdit, canDelete } = usePageAccess('administration', 'approval-hierarchy')
-  const locked = adminOnly || !canEdit
+  const locked = !canEdit
 
   // success banners fade away on their own
   useEffect(() => {
@@ -87,25 +142,23 @@ export function ApprovalHierarchyPage() {
   const levelsOf = (id: number) => levels.filter((l) => l.hierarchyId === id).sort((a, b) => a.levelNo - b.levelNo)
 
   const defaultHierarchy = hierarchies.find((h) => h.isDefault)
-  const selected = hierarchies.find((h) => h.id === selectedId) ?? hierarchies[0]
+  // a blank stand-in while the list loads or is empty (the section below is not shown then)
+  const selected: ApprovalHierarchy = hierarchies.find((h) => h.id === selectedId) ??
+    defaultHierarchy ??
+    hierarchies[0] ?? { id: 0, name: '', isDefault: false, isActive: false, created: '' }
   const current = levelsOf(selected.id)
   const chain = current.filter((l) => l.isActive)
 
   // what the loan applications really go through
-  const defaultChain = adminOnly
-    ? [ADMIN_ONLY_LEVEL]
-    : defaultHierarchy
-      ? levelsOf(defaultHierarchy.id).filter((l) => l.isActive)
-      : []
+  const defaultChain = defaultHierarchy ? levelsOf(defaultHierarchy.id).filter((l) => l.isActive) : []
   const uncovered = defaultChain.filter((l) => activeUsersWithRole(l.requiredRole).length === 0)
   const approvers = new Set(defaultChain.flatMap((l) => activeUsersWithRole(l.requiredRole).map((u) => u.id))).size
-  const adminApprovers = activeUsersWithRole('Admin')
 
   // here `color` is the icon color
   const stats = [
     { label: 'Hierarchies', value: hierarchies.length, icon: 'network', color: '#45bdfc' },
     {
-      label: adminOnly ? 'Approval Mode: Admin Only' : 'Levels In Default Chain',
+      label: 'Levels In Default Chain',
       value: defaultChain.length,
       icon: 'square-check',
       color: 'var(--app-brand)',
@@ -121,9 +174,7 @@ export function ApprovalHierarchyPage() {
       ? 'Add at least one active level first.'
       : null
 
-  const deleteBlock = selected.isDefault
-    ? 'The default hierarchy cannot be deleted. Make another one the default first.'
-    : null
+  const deleteBlock = isSystem(selected) ? 'The System Hierarchy cannot be deleted.' : null
 
   // the default hierarchy always needs a level that decides
   const levelBlock = (l: ApprovalLevel): string | null =>
@@ -133,119 +184,270 @@ export function ApprovalHierarchyPage() {
 
   const dialogLevel = dialog && 'id' in dialog ? levels.find((l) => l.id === dialog.id) : undefined
 
-  const saveLevels = (next: ApprovalLevel[]) =>
+  // on-screen changes are for the sample hierarchies only; on a saved one, only adding a level is connected so far
+  const saveLevels = (next: ApprovalLevel[]) => {
+    if (isSystem(selected)) {
+      setNotice({ color: 'blue', text: 'The System Hierarchy is read-only. Nothing was changed.' })
+      setDialog(null)
+      return false
+    }
+    if (selected.id < 0) {
+      setNotice({ color: 'blue', text: 'Only adding levels is connected for saved hierarchies so far.' })
+      setDialog(null)
+      return false
+    }
     setLevels((all) => [...all.filter((l) => l.hierarchyId !== selected.id), ...next])
+    return true
+  }
 
   const renumber = (list: ApprovalLevel[]) => list.map((l, i) => ({ ...l, levelNo: i + 1 }))
 
-  /* ---------- approval mode ---------- */
-
-  const toggleAdminOnly = () => {
-    // TODO: when turning on, PUT /api/approval-hierarchys/{id} on a hierarchy with one active level
-    //       { levelName: 'Admin', requiredRole: 'Admin' } and make it the default.
-    //       When turning off, make the previous default hierarchy the default again.
-    setAdminOnly((on) => !on)
-    setNotice({
-      color: adminOnly ? 'blue' : 'green',
-      text: adminOnly
-        ? `Admin-only approval is off. Applications follow ${defaultHierarchy?.name ?? 'the default hierarchy'} again.`
-        : 'Admin-only approval is on. The Admin now approves every application alone.',
-    })
-    setDialog(null)
-  }
-
   /* ---------- hierarchy actions ---------- */
 
-  const createHierarchy = (name: string) => {
-    const id = Math.max(0, ...hierarchies.map((h) => h.id)) + 1
-    setHierarchies((list) => [
-      ...list,
-      { id, name, isDefault: false, isActive: true, created: dayjs().format('YYYY-MM-DD') },
-    ])
-    setSelectedId(id)
-    setNotice({ color: 'green', text: `Hierarchy ${name} was created. Add its levels next.` })
+  // POST /api/approval-hierarchys; an error is thrown back to the dialog and shown there
+  const createHierarchy = async (name: string) => {
+    const created = await createServerHierarchy(name)
+    await serverHierarchiesQuery.refetch()
+    if (created.id > 0) setSelectedId(-created.id)
+    setNotice({ color: 'green', text: `Hierarchy ${name} was saved. Add its levels next.` })
     setDialog(null)
   }
 
-  const renameHierarchy = (name: string) => {
-    setHierarchies((list) => list.map((h) => (h.id === selected.id ? { ...h, name } : h)))
+  // the System Hierarchy cannot be renamed, deactivated or deleted
+  const readOnly = () => {
+    if (!isSystem(selected)) return false
+    setNotice({ color: 'blue', text: 'The System Hierarchy is read-only. Nothing was changed.' })
+    setDialog(null)
+    return true
+  }
+
+  // when the hierarchy in use is deactivated or deleted, the System Hierarchy takes over first,
+  // so loans are never left without a default
+  const fallBackToSystem = () => setDefaultHierarchy(SYSTEM_HIERARCHY_SERVER_ID, serverHierarchies ?? [])
+
+  // PUT /api/approval-hierarchys/{id} { name }; an error is shown in the dialog
+  const renameHierarchy = async (name: string) => {
+    if (readOnly()) return
+    if (selected.id >= 0) {
+      setHierarchies((list) => list.map((h) => (h.id === selected.id ? { ...h, name } : h)))
+    } else {
+      await updateHierarchy(-selected.id, { name })
+    }
     setNotice({ color: 'green', text: `The hierarchy was renamed to ${name}.` })
     setDialog(null)
   }
 
-  const makeDefault = () => {
-    if (defaultBlock) return
-    // TODO: PUT /api/approval-hierarchys/{id} { isDefault: true }, and the old default { isDefault: false }
-    //       The API has no rule that keeps a single default, it has to be enforced in the backend too.
-    setHierarchies((list) => list.map((h) => ({ ...h, isDefault: h.id === selected.id })))
-    setNotice({ color: 'green', text: `${selected.name} is now the default. New approvals follow its ${chain.length} levels.` })
+  // PUT /api/approval-hierarchys/{id}: is_default = true on the chosen one, false on all the others.
+  // Allowed on the System Hierarchy too: choosing it as the fallback does not change its contents
+  const [switching, setSwitching] = useState(false)
+  const makeDefault = async () => {
     setDialog(null)
+    if (defaultBlock || switching) return
+    if (selected.id >= 0) {
+      setHierarchies((list) => list.map((h) => ({ ...h, isDefault: h.id === selected.id })))
+      return
+    }
+    const target = selected
+    const levelCount = chain.length
+    setSwitching(true)
+    try {
+      await setDefaultHierarchy(-target.id, serverHierarchies ?? [])
+      setNotice({
+        color: 'green',
+        text: isSystem(target)
+          ? `Back to the system default. New approvals follow ${target.name} (one Admin decision).`
+          : `${target.name} is now the organization default. New approvals follow its ${levelCount} ${
+              levelCount === 1 ? 'level' : 'levels'
+            }.`,
+      })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not change the default: ${err instanceof Error ? err.message : 'please try again'}. Check which hierarchy is marked default before retrying.`,
+      })
+    } finally {
+      setSwitching(false)
+    }
   }
 
-  const toggleHierarchy = () => {
-    if (selected.isDefault && selected.isActive) return
-    // TODO: PUT /api/approval-hierarchys/{id} { isActive }
-    setHierarchies((list) => list.map((h) => (h.id === selected.id ? { ...h, isActive: !h.isActive } : h)))
-    setNotice({ color: 'blue', text: `${selected.name} was ${selected.isActive ? 'deactivated' : 'activated'}.` })
+  // PUT /api/approval-hierarchys/{id} { isActive }; deactivating the one in use falls back to the System Hierarchy
+  const toggleHierarchy = async () => {
+    if (readOnly() || switching) return
+    const target = selected
+    if (target.id >= 0) {
+      setHierarchies((list) => list.map((h) => (h.id === target.id ? { ...h, isActive: !h.isActive } : h)))
+      return
+    }
+    const deactivating = target.isActive
+    const inUse = target.isDefault
+    setSwitching(true)
+    try {
+      if (deactivating && inUse) await fallBackToSystem()
+      await updateHierarchy(-target.id, { isActive: !deactivating })
+      setNotice({
+        color: 'blue',
+        text: deactivating
+          ? `${target.name} was deactivated.${inUse ? ' New approvals now follow the System Hierarchy.' : ''}`
+          : `${target.name} was activated. Make it the default to use it for new approvals.`,
+      })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not ${deactivating ? 'deactivate' : 'activate'} ${target.name}: ${
+          err instanceof Error ? err.message : 'please try again'
+        }`,
+      })
+    } finally {
+      setSwitching(false)
+    }
   }
 
-  const removeHierarchy = () => {
-    if (deleteBlock) return
-    // TODO: DELETE /api/approval-hierarchys/{id}
-    setHierarchies((list) => list.filter((h) => h.id !== selected.id))
-    setLevels((list) => list.filter((l) => l.hierarchyId !== selected.id))
-    setNotice({ color: 'blue', text: `Hierarchy ${selected.name} was deleted.` })
-    setSelectedId(defaultHierarchy?.id ?? hierarchies[0].id)
+  // DELETE the levels, then the hierarchy; deleting the one in use falls back to the System Hierarchy first
+  const removeHierarchy = async () => {
     setDialog(null)
+    if (deleteBlock || readOnly() || switching) return
+    const target = selected
+    if (target.id >= 0) {
+      setHierarchies((list) => list.filter((h) => h.id !== target.id))
+      setLevels((list) => list.filter((l) => l.hierarchyId !== target.id))
+      setSelectedId(0)
+      return
+    }
+    setSwitching(true)
+    try {
+      if (target.isDefault) await fallBackToSystem()
+      await deleteHierarchy(-target.id)
+      setSelectedId(0)
+      setNotice({
+        color: 'blue',
+        text: `Hierarchy ${target.name} was deleted.${target.isDefault ? ' New approvals now follow the System Hierarchy.' : ''}`,
+      })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not delete ${target.name}: ${err instanceof Error ? err.message : 'please try again'}`,
+      })
+    } finally {
+      setSwitching(false)
+    }
   }
 
   /* ---------- level actions ---------- */
 
-  const addLevel = (input: LevelInput) => {
-    const id = Math.max(0, ...levels.map((l) => l.id)) + 1
-    saveLevels([...current, { id, hierarchyId: selected.id, levelNo: current.length + 1, isActive: true, ...input }])
-    setNotice({ color: 'green', text: `Level ${input.levelName} was added to ${selected.name}.` })
+  // saved hierarchy: POST /api/approval-levels as the next number (an error is shown in the dialog)
+  const addLevel = async (input: LevelInput) => {
+    const levelNo = Math.max(0, ...current.map((l) => l.levelNo)) + 1
+    if (isSystem(selected)) throw new Error('The System Hierarchy is read-only.')
+    if (selected.id < 0) {
+      await createServerLevel(-selected.id, { levelNo, ...input })
+    } else {
+      const id = Math.max(0, ...levels.map((l) => l.id)) + 1
+      saveLevels([...current, { id, hierarchyId: selected.id, levelNo, isActive: true, ...input }])
+    }
+    setNotice({ color: 'green', text: `Level ${input.levelName} was added to ${selected.name} as level ${levelNo}.` })
     setDialog(null)
   }
 
   const editLevel = (input: LevelInput) => {
     if (!dialogLevel) return
-    saveLevels(current.map((l) => (l.id === dialogLevel.id ? { ...l, ...input } : l)))
+    if (!saveLevels(current.map((l) => (l.id === dialogLevel.id ? { ...l, ...input } : l)))) return
     setNotice({ color: 'green', text: `Level ${input.levelName} was updated.` })
     setDialog(null)
   }
 
-  const toggleLevel = (l: ApprovalLevel) => {
-    if (levelBlock(l)) return
-    // TODO: PUT /api/approval-levels/{id} { isActive }
-    saveLevels(current.map((x) => (x.id === l.id ? { ...x, isActive: !x.isActive } : x)))
-    setNotice({
-      color: 'blue',
-      text: l.isActive
-        ? `${l.levelName} is now skipped. Applications go straight past it.`
-        : `${l.levelName} is back in the chain.`,
-    })
+  // true while levels are being saved and read back (skip, move or delete): the list shows skeletons
+  const [moving, setMoving] = useState(false)
+
+  // saved hierarchy: PUT /api/approval-levels/{id} { isActive } (skip = false, include = true)
+  const toggleLevel = async (l: ApprovalLevel) => {
+    if (levelBlock(l) || moving) return
+    const done = l.isActive
+      ? `${l.levelName} is now skipped. Applications go straight past it.`
+      : `${l.levelName} was restored and is back in the chain.`
+    if (isSystem(selected) || selected.id >= 0) {
+      if (saveLevels(current.map((x) => (x.id === l.id ? { ...x, isActive: !x.isActive } : x)))) {
+        setNotice({ color: 'blue', text: done })
+      }
+      return
+    }
+    setMoving(true)
+    try {
+      await setLevelActive(-selected.id, -l.id, !l.isActive)
+      setNotice({ color: 'blue', text: done })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not ${l.isActive ? 'skip' : 'include'} ${l.levelName}: ${
+          err instanceof Error ? err.message : 'please try again'
+        }`,
+      })
+    } finally {
+      setMoving(false)
+    }
   }
 
-  const removeLevel = () => {
-    if (!dialogLevel || levelBlock(dialogLevel)) return
-    // TODO: DELETE /api/approval-levels/{id}, then PUT the new levelNo of every level after it
-    saveLevels(renumber(current.filter((l) => l.id !== dialogLevel.id)))
-    setNotice({ color: 'blue', text: `Level ${dialogLevel.levelName} was removed and the rest renumbered.` })
+  // saved hierarchy: DELETE /api/approval-levels/{id}, then the levels after it are renumbered
+  const removeLevel = async () => {
+    const target = dialogLevel
     setDialog(null)
+    if (!target || levelBlock(target) || moving) return
+    if (isSystem(selected) || selected.id >= 0) {
+      if (saveLevels(renumber(current.filter((l) => l.id !== target.id)))) {
+        setNotice({ color: 'blue', text: `Level ${target.levelName} was removed and the rest renumbered.` })
+      }
+      return
+    }
+    const toServer = (x: ApprovalLevel) => ({ ...x, id: -x.id, hierarchyId: -x.hierarchyId })
+    setMoving(true)
+    try {
+      await deleteLevel(-selected.id, toServer(target), current.map(toServer))
+      setNotice({ color: 'blue', text: `Level ${target.levelName} was deleted and the levels after it moved up.` })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not delete ${target.levelName}: ${err instanceof Error ? err.message : 'please try again'}`,
+      })
+    } finally {
+      setMoving(false)
+    }
   }
 
-  // swap a level with its neighbour, then number the levels again
-  const move = (l: ApprovalLevel, step: -1 | 1) => {
+  // swap a level with its neighbour: on a saved hierarchy the two trade level_no (PUT /api/approval-levels/{id} x2)
+  const move = async (l: ApprovalLevel, step: -1 | 1) => {
     const list = [...current]
     const i = list.findIndex((x) => x.id === l.id)
     const j = i + step
-    if (j < 0 || j >= list.length) return
+    if (j < 0 || j >= list.length || moving) return
     const other = list[j]
-    list[j] = list[i]
-    list[i] = other
-    // TODO: PUT /api/approval-levels/{id} { levelNo } for each level that changed place
-    saveLevels(renumber(list))
+
+    if (isSystem(selected)) {
+      saveLevels(list) // refuses with the read-only notice
+      return
+    }
+    if (selected.id >= 0) {
+      list[j] = list[i]
+      list[i] = other
+      saveLevels(renumber(list))
+      return
+    }
+
+    // server ids are the local ids made positive again
+    const toServer = (x: ApprovalLevel) => ({ ...x, id: -x.id, hierarchyId: -x.hierarchyId })
+    setMoving(true)
+    try {
+      await swapLevels(-selected.id, toServer(l), toServer(other))
+      setNotice({
+        color: 'green',
+        text: `${l.levelName} is now level ${other.levelNo} and ${other.levelName} is level ${l.levelNo}.`,
+      })
+    } catch (err) {
+      setNotice({
+        color: 'red',
+        text: `Could not move ${l.levelName}: ${err instanceof Error ? err.message : 'please try again'}. Check the level order below before retrying.`,
+      })
+    } finally {
+      setMoving(false)
+    }
   }
 
   return (
@@ -257,7 +459,6 @@ export function ApprovalHierarchyPage() {
         canCreate ? (
         <Button
           size="xs"
-          disabled={adminOnly}
           leftSection={<AppIcon name="plus" />}
           onClick={() => setDialog({ kind: 'hierarchy-create' })}
         >
@@ -279,46 +480,6 @@ export function ApprovalHierarchyPage() {
           </Alert>
         )}
 
-        {/* approval mode: a full hierarchy, or the Admin alone */}
-        <div className={`${CARD} p-4`}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-subtle text-brand-dark">
-                <AppIcon name="shield" size={20} strokeWidth={1.25} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-gray-800">Admin approves everything</div>
-                <div className="text-xs text-gray-500">
-                  Skip the approval hierarchy. One decision from an Admin approves or rejects the application, with no
-                  other levels.
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Badge variant="light" color={adminOnly ? 'brand' : 'gray'} radius="sm" size="sm">
-                    {adminOnly ? 'Admin only' : 'Hierarchy'}
-                  </Badge>
-                  {adminOnly && (
-                    <Text size="xs" c="dimmed">
-                      Path: Submitted → Admin → Approved
-                    </Text>
-                  )}
-                </div>
-              </div>
-            </div>
-            <Switch
-              checked={adminOnly}
-              disabled={!canEdit}
-              onChange={() => setDialog({ kind: 'mode' })}
-              aria-label="Admin approves everything"
-            />
-          </div>
-
-          {adminOnly && adminApprovers.length > 0 && (
-            <Text size="xs" c="dimmed" mt="sm">
-              {adminApprovers.length} active {adminApprovers.length === 1 ? 'Admin' : 'Admins'} can approve:{' '}
-              {adminApprovers.map((u) => u.name).join(', ')}.
-            </Text>
-          )}
-        </div>
 
         {uncovered.length > 0 && (
           <Alert color="red" variant="light" icon={<AppIcon name="triangle-alert" />}>
@@ -342,16 +503,29 @@ export function ApprovalHierarchyPage() {
           ))}
         </div>
 
-        {adminOnly && (
-          <Alert color="blue" variant="light" icon={<AppIcon name="info" />}>
-            <Text size="sm">
-              Admin-only approval is on, so the hierarchies below are not used. They are kept as they are and apply
-              again when you turn it off.
-            </Text>
-          </Alert>
+        {/* row 2: nothing to list yet (loading, failed or empty) */}
+        {hierarchies.length === 0 && (
+          <div className={`${CARD} p-5`}>
+            {serverHierarchiesQuery.isPending ? (
+              <div className="space-y-2">
+                <Skeleton height={16} width="30%" />
+                <Skeleton height={48} />
+                <Skeleton height={48} />
+              </div>
+            ) : serverHierarchiesQuery.isError ? (
+              <Text size="sm" c="red">
+                Could not load the hierarchies. Refresh the page to try again.
+              </Text>
+            ) : (
+              <Text size="sm" c="dimmed">
+                No hierarchy yet. Create one with New hierarchy, then add its levels.
+              </Text>
+            )}
+          </div>
         )}
 
-        {/* row 2: the hierarchies and the chain of the selected one, greyed out in Admin-only mode */}
+        {/* row 2: the hierarchies and the chain of the selected one */}
+        {hierarchies.length > 0 && (
         <div aria-disabled={locked} className={locked ? 'pointer-events-none select-none opacity-50' : ''}>
           <div className="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
             {/* hierarchy list */}
@@ -392,9 +566,11 @@ export function ApprovalHierarchyPage() {
                   <div className="truncate text-base font-semibold text-gray-800">{selected.name}</div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <HierarchyBadges h={selected} />
-                    <Text size="xs" c="dimmed">
-                      Created {dayjs(selected.created).format('MMM D, YYYY')}
-                    </Text>
+                    {selected.created && (
+                      <Text size="xs" c="dimmed">
+                        Created {dayjs(selected.created).format('MMM D, YYYY')}
+                      </Text>
+                    )}
                   </div>
                 </div>
 
@@ -403,13 +579,16 @@ export function ApprovalHierarchyPage() {
                     <Button
                       size="xs"
                       variant="default"
-                      disabled={!!defaultBlock}
+                      disabled={!!defaultBlock || !canEdit}
+                      loading={switching}
                       leftSection={<AppIcon name="circle-check" />}
                       onClick={() => setDialog({ kind: 'hierarchy-default' })}
                     >
-                      Make default
+                      {isSystem(selected) ? 'Use system default' : 'Make default'}
                     </Button>
                   )}
+                  {!isSystem(selected) && (
+                  <>
                   <Button size="xs" leftSection={<AppIcon name="plus" />} onClick={() => setDialog({ kind: 'level-create' })}>
                     Add level
                   </Button>
@@ -424,11 +603,15 @@ export function ApprovalHierarchyPage() {
                         Rename
                       </Menu.Item>
                       <Menu.Item
-                        disabled={selected.isDefault && selected.isActive}
+                        disabled={switching}
                         leftSection={<AppIcon name={selected.isActive ? 'circle-x' : 'circle-check'} />}
-                        onClick={toggleHierarchy}
+                        onClick={() => void toggleHierarchy()}
                       >
-                        {selected.isActive ? 'Deactivate' : 'Activate'}
+                        {selected.isActive
+                          ? selected.isDefault
+                            ? 'Deactivate (System Hierarchy takes over)'
+                            : 'Deactivate'
+                          : 'Activate'}
                       </Menu.Item>
                       <Menu.Divider />
                       <Menu.Item
@@ -441,8 +624,19 @@ export function ApprovalHierarchyPage() {
                       </Menu.Item>
                     </Menu.Dropdown>
                   </Menu>
+                  </>
+                  )}
                 </div>
               </div>
+
+              {isSystem(selected) && (
+                <Alert color="gray" variant="light" icon={<AppIcon name="lock-keyhole" />} mb="md">
+                  <Text size="sm">
+                    This is the system hierarchy: one Admin decision approves or rejects an application. It is read-only,
+                    so it cannot be renamed, deactivated or deleted, and its levels cannot be changed.
+                  </Text>
+                </Alert>
+              )}
 
               {!selected.isDefault && defaultBlock && (
                 <Alert color="gray" variant="light" icon={<AppIcon name="lock-keyhole" />} mb="md">
@@ -453,7 +647,13 @@ export function ApprovalHierarchyPage() {
               {/* the chain, as an application sees it */}
               <div className="mb-5">
                 <SectionTitle>The path of an application</SectionTitle>
-                {chain.length === 0 ? (
+                {moving ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {[80, ...chain.map(() => 140), 80].map((w, k) => (
+                      <Skeleton key={k} height={24} width={w} radius="sm" />
+                    ))}
+                  </div>
+                ) : chain.length === 0 ? (
                   <div className="mt-2 rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">
                     No active level yet, so there is no chain. Add a level to start.
                   </div>
@@ -486,7 +686,21 @@ export function ApprovalHierarchyPage() {
                   kept but not asked.
                 </p>
 
-                {current.length === 0 ? (
+                {moving ? (
+                  // the new order is being saved and read back
+                  <ul className="space-y-2" aria-busy="true" aria-label="Saving the new level order">
+                    {current.map((l) => (
+                      <li key={l.id} className="flex items-start gap-3 rounded-md border border-gray-200 px-3 py-3">
+                        <Skeleton height={32} width={32} circle />
+                        <div className="flex-1 space-y-2 pt-1">
+                          <Skeleton height={12} width="40%" />
+                          <Skeleton height={10} width="25%" />
+                          <Skeleton height={10} width="55%" />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : current.length === 0 ? (
                   <div className="rounded-md border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-500">
                     This hierarchy has no levels yet.
                   </div>
@@ -504,13 +718,14 @@ export function ApprovalHierarchyPage() {
                         >
                           <div
                             className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium ${
-                              l.isActive ? 'bg-brand-subtle text-brand-dark' : 'bg-gray-100 text-gray-400'
+                              l.isActive ? 'bg-brand-subtle text-brand-dark' : 'bg-gray-100 text-gray-400 opacity-60'
                             }`}
                           >
                             {l.levelNo}
                           </div>
 
-                          <div className="min-w-0 flex-1">
+                          {/* a skipped level stays in the list, greyed out, until it is restored */}
+                          <div className={`min-w-0 flex-1 ${l.isActive ? '' : 'opacity-60'}`}>
                             <div className="flex flex-wrap items-center gap-2">
                               <span className={`text-sm font-medium ${l.isActive ? 'text-gray-800' : 'text-gray-400'}`}>
                                 {l.levelName}
@@ -535,14 +750,15 @@ export function ApprovalHierarchyPage() {
                             </div>
                           </div>
 
+                          {!isSystem(selected) && (
                           <div className="flex shrink-0 items-center gap-1">
                             <ActionIcon
                               variant="subtle"
                               color="gray"
                               size="sm"
-                              disabled={i === 0}
+                              disabled={i === 0 || moving}
                               aria-label={`Move ${l.levelName} up`}
-                              onClick={() => move(l, -1)}
+                              onClick={() => void move(l, -1)}
                             >
                               <AppIcon name="arrow-up" />
                             </ActionIcon>
@@ -550,9 +766,9 @@ export function ApprovalHierarchyPage() {
                               variant="subtle"
                               color="gray"
                               size="sm"
-                              disabled={i === current.length - 1}
+                              disabled={i === current.length - 1 || moving}
                               aria-label={`Move ${l.levelName} down`}
-                              onClick={() => move(l, 1)}
+                              onClick={() => void move(l, 1)}
                             >
                               <AppIcon name="arrow-down" />
                             </ActionIcon>
@@ -570,9 +786,9 @@ export function ApprovalHierarchyPage() {
                                 <Menu.Item
                                   disabled={!!blocked || !canDelete}
                                   leftSection={<AppIcon name={l.isActive ? 'circle-x' : 'circle-check'} />}
-                                  onClick={() => toggleLevel(l)}
+                                  onClick={() => void toggleLevel(l)}
                                 >
-                                  {l.isActive ? (blocked ? 'Cannot skip' : 'Skip this level') : 'Include this level'}
+                                  {l.isActive ? (blocked ? 'Cannot skip' : 'Skip this level') : 'Restore level'}
                                 </Menu.Item>
                                 <Menu.Divider />
                                 <Menu.Item
@@ -586,6 +802,7 @@ export function ApprovalHierarchyPage() {
                               </Menu.Dropdown>
                             </Menu>
                           </div>
+                          )}
                         </li>
                       )
                     })}
@@ -602,6 +819,7 @@ export function ApprovalHierarchyPage() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
       <HierarchyDialog
@@ -622,38 +840,27 @@ export function ApprovalHierarchyPage() {
       />
 
       <ContractConfirmDialog
-        opened={dialog?.kind === 'mode'}
-        title={adminOnly ? 'Use the approval hierarchy' : 'Let the Admin approve everything'}
-        message={
-          adminOnly
-            ? `Go back to ${defaultHierarchy?.name ?? 'the default hierarchy'}? New approvals will go through its ${
-                levelsOf(defaultHierarchy?.id ?? 0).filter((l) => l.isActive).length
-              } levels.`
-            : 'Skip the approval hierarchy? One Admin decision will approve or reject each application, with no other levels. Applications already waiting at a later level are not affected until you review them.'
-        }
-        confirmLabel={adminOnly ? 'Use hierarchy' : 'Turn on'}
-        onClose={() => setDialog(null)}
-        onConfirm={toggleAdminOnly}
-      />
-
-      <ContractConfirmDialog
         opened={dialog?.kind === 'hierarchy-default'}
-        title="Make default"
-        message={`Make ${selected.name} the default? New approvals will go through its ${chain.length} ${
-          chain.length === 1 ? 'level' : 'levels'
-        }${defaultHierarchy ? `, and ${defaultHierarchy.name} stops being the default` : ''}.`}
-        confirmLabel="Make default"
+        title={isSystem(selected) ? 'Use system default' : 'Make organization default'}
+        message={`${
+          isSystem(selected) ? `Go back to ${selected.name}` : `Make ${selected.name} the organization default`
+        }? New approvals will go through its ${chain.length} ${chain.length === 1 ? 'level' : 'levels'}${
+          defaultHierarchy ? `, and ${defaultHierarchy.name} stops being used` : ''
+        }. Applications already in approval keep their decisions so far.`}
+        confirmLabel={isSystem(selected) ? 'Use system default' : 'Make default'}
         onClose={() => setDialog(null)}
-        onConfirm={makeDefault}
+        onConfirm={() => void makeDefault()}
       />
 
       <ContractConfirmDialog
         opened={dialog?.kind === 'hierarchy-delete' && !deleteBlock}
         title="Delete hierarchy"
-        message={`Delete ${selected.name} and its ${current.length} ${current.length === 1 ? 'level' : 'levels'}? This cannot be undone.`}
+        message={`Delete ${selected.name} and its ${current.length} ${current.length === 1 ? 'level' : 'levels'}? This cannot be undone.${
+          selected.isDefault ? ' It is in use, so new approvals will follow the System Hierarchy.' : ''
+        }`}
         confirmLabel="Delete hierarchy"
         onClose={() => setDialog(null)}
-        onConfirm={removeHierarchy}
+        onConfirm={() => void removeHierarchy()}
       />
 
       <ContractConfirmDialog
@@ -662,7 +869,7 @@ export function ApprovalHierarchyPage() {
         message={`Remove the ${dialogLevel?.levelName ?? ''} level from ${selected.name}? The remaining levels are renumbered.`}
         confirmLabel="Delete level"
         onClose={() => setDialog(null)}
-        onConfirm={removeLevel}
+        onConfirm={() => void removeLevel()}
       />
     </DashboardLayout>
   )

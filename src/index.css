@@ -2,7 +2,8 @@
 @import "tailwindcss";
 
 html {
-  font-size: 14.29px;
+  /* every rem size (Mantine and Tailwind) scales from this; was 14.29px, about 5% smaller now */
+  font-size: 14px;
 }
 
 @theme {
@@ -193,16 +194,28 @@ html {
   isolation: isolate;
 }
 
-/* shared by the real header and the preview tile in Theme Settings */
+/* The contour lines come from the SVG below. They used to be painted white on a white band, so they were
+   invisible; now the SVG is a stencil (mask) over a light tint of the brand color, so the lines show and
+   follow the palette. Shared by the real header and the preview tile in Theme Settings */
 .texture-header-skin::before,
 .texture-pattern {
   background-color: #ffffff;
-  background-repeat: no-repeat;
-  background-size: 100% 100%;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011 0.005' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.6 0 0 0 -0.8'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
 }
 
-.texture-header-skin::before {
+.texture-header-skin::after,
+.texture-pattern::after {
+  --texture-brand: var(--texture-preview-brand, var(--app-brand));
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background-color: color-mix(in srgb, var(--texture-brand) 26%, white);
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011 0.005' numOctaves='3' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 2.6 0 0 0 -0.8'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9 0 0 0 0 0 .9'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+}
+
+.texture-header-skin::before,
+.texture-header-skin::after {
   position: absolute;
   z-index: 0;
   pointer-events: none;
@@ -211,9 +224,94 @@ html {
   height: 124px;
 }
 
+/* the preview tile in Theme Settings */
+.texture-pattern {
+  position: relative;
+  overflow: hidden;
+}
+
+.texture-pattern::after {
+  inset: 0;
+}
+
 .texture-header-skin > * {
   position: relative;
   z-index: 1;
+}
+
+/* alternative header background: a fine dot grid in the brand tint, strong at the sides and fading
+   towards the middle so the title stays on clean white, chosen in Theme Settings */
+.dots-header-skin {
+  position: relative;
+  isolation: isolate;
+}
+
+/* the white band with a soft brand glow in the top right corner (header and preview tile) */
+.dots-header-skin::before,
+.dots-pattern {
+  --dots-brand: var(--dots-preview-brand, var(--app-brand));
+  background-color: #ffffff;
+  background-repeat: no-repeat;
+  background-image: radial-gradient(
+    ellipse 55% 140% at 100% 0%,
+    color-mix(in srgb, var(--dots-brand) 9%, transparent),
+    transparent 70%
+  );
+}
+
+/* the dots, on their own layer so only they fade out */
+.dots-header-skin::after,
+.dots-pattern::after {
+  --dots-brand: var(--dots-preview-brand, var(--app-brand));
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--dots-brand) 30%, white) 1.3px, transparent 1.9px);
+  background-size: 16px 16px;
+  mask-image: radial-gradient(ellipse 62% 150% at 50% 0%, transparent 35%, #000 85%);
+}
+
+.dots-header-skin::before,
+.dots-header-skin::after {
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 124px;
+}
+
+.dots-header-skin::before {
+  position: absolute;
+  pointer-events: none;
+  content: "";
+}
+
+.dots-header-skin > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* the preview tile in Theme Settings */
+.dots-pattern {
+  position: relative;
+  overflow: hidden;
+}
+
+.dots-pattern::after {
+  inset: 0;
+  background-size: 10px 10px;
+}
+
+/* the bottom of the header band (124px tall) melts into the white page instead of stopping on a hard edge.
+   It sits above the pattern and below the header, title and cards, so the overlapping cards are unchanged.
+   Defined after the skins so it wins over their "> *" rule */
+.header-band-fade {
+  position: absolute;
+  z-index: 1;
+  top: 64px;
+  left: 0;
+  right: 0;
+  height: 62px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0%), #ffffff 92%);
 }
 
 @media (max-width: 1023px) {

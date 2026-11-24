@@ -1,7 +1,8 @@
 import { AppIcon } from '../../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { Alert, Button, Modal, Select, Text, TextInput } from '@mantine/core'
-import { ROLE_NAMES, activeUsersWithRole, type ApprovalHierarchy, type ApprovalLevel } from './approvalHierarchyData'
+import { type ApprovalHierarchy, type ApprovalLevel } from './approvalHierarchyData'
+import { toUser, useApiRoles, useApiUsers } from '../../../api/users'
 
 /* ---------- new / rename hierarchy ---------- */
 
@@ -11,13 +12,15 @@ type HierarchyDialogProps = {
   hierarchy: ApprovalHierarchy | null
   existingNames: string[]
   onClose: () => void
-  onSubmit: (name: string) => void
+  /** may answer a promise (saved on the server); a thrown error is shown under the name */
+  onSubmit: (name: string) => void | Promise<void>
 }
 
 export function HierarchyDialog({ opened, hierarchy, existingNames, onClose, onSubmit }: HierarchyDialogProps) {
   const editing = hierarchy !== null
   const [name, setName] = useState('')
   const [error, setError] = useState<string>()
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!opened) return
@@ -25,14 +28,22 @@ export function HierarchyDialog({ opened, hierarchy, existingNames, onClose, onS
     setError(undefined)
   }, [opened, hierarchy])
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return
     const n = name.trim()
     if (!n) return setError('Enter the hierarchy name')
     if (existingNames.some((x) => x.toLowerCase() === n.toLowerCase() && x !== hierarchy?.name)) {
       return setError('This name is already used')
     }
-    // TODO: POST /api/approval-hierarchys { name, isDefault: false, isActive: true }, or PUT /api/approval-hierarchys/{id} when renaming
-    onSubmit(n)
+    // creating: POST /api/approval-hierarchys (in the page). TODO: PUT /api/approval-hierarchys/{id} when renaming
+    setSaving(true)
+    try {
+      await onSubmit(n)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the hierarchy. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -60,10 +71,10 @@ export function HierarchyDialog({ opened, hierarchy, existingNames, onClose, onS
         )}
 
         <div className="flex justify-end gap-2">
-          <Button size="xs" variant="default" onClick={onClose}>
+          <Button size="xs" variant="default" disabled={saving} onClick={onClose}>
             Cancel
           </Button>
-          <Button size="xs" leftSection={<AppIcon name="check" />} onClick={submit}>
+          <Button size="xs" leftSection={<AppIcon name="check" />} loading={saving} onClick={() => void submit()}>
             {editing ? 'Save changes' : 'Create hierarchy'}
           </Button>
         </div>
@@ -84,16 +95,28 @@ type LevelDialogProps = {
   /** names of the other levels in the same hierarchy */
   existingNames: string[]
   onClose: () => void
-  onSubmit: (input: LevelInput) => void
+  /** may answer a promise (saved on the server); a thrown error is shown in the dialog */
+  onSubmit: (input: LevelInput) => void | Promise<void>
 }
 
-type Errors = Partial<Record<'name' | 'role', string>>
+type Errors = Partial<Record<'name' | 'role' | 'save', string>>
 
 export function LevelDialog({ opened, level, hierarchyName, existingNames, onClose, onSubmit }: LevelDialogProps) {
   const editing = level !== null
   const [name, setName] = useState('')
   const [role, setRole] = useState<string | null>(null)
   const [errors, setErrors] = useState<Errors>({})
+  const [saving, setSaving] = useState(false)
+
+  // GET /api/roles and /api/users: required_role must match a real Role.name exactly
+  const rolesQuery = useApiRoles()
+  const usersQuery = useApiUsers()
+  const roles = rolesQuery.data ?? []
+  const roleNames = roles.filter((r) => r.isActive).map((r) => r.name)
+  // an edited level keeps its role in the list even if that role is gone
+  const roleOptions = role && !roleNames.includes(role) ? [...roleNames, role] : roleNames
+  const activeUsersWithRole = (r: string) =>
+    (usersQuery.data ?? []).map((u) => toUser(u, roles)).filter((u) => u.role === r && u.active)
 
   useEffect(() => {
     if (!opened) return
@@ -104,7 +127,8 @@ export function LevelDialog({ opened, level, hierarchyName, existingNames, onClo
 
   const users = role ? activeUsersWithRole(role) : []
 
-  const submit = () => {
+  const submit = async () => {
+    if (saving) return
     const found: Errors = {}
     const n = name.trim()
 
@@ -117,9 +141,16 @@ export function LevelDialog({ opened, level, hierarchyName, existingNames, onClo
     setErrors(found)
     if (Object.keys(found).length > 0 || !role) return
 
-    // TODO: POST /api/approval-levels { hierarchyId, levelNo, levelName, requiredRole, isActive: true },
-    //       or PUT /api/approval-levels/{id} when editing (raw CRUD, there is no workflow endpoint for levels)
-    onSubmit({ levelName: n, requiredRole: role })
+    // adding to a saved hierarchy: POST /api/approval-levels (in the page)
+    // TODO: PUT /api/approval-levels/{id} when editing (raw CRUD, there is no workflow endpoint for levels)
+    setSaving(true)
+    try {
+      await onSubmit({ levelName: n, requiredRole: role })
+    } catch (err) {
+      setErrors({ save: err instanceof Error ? err.message : 'Could not save the level. Please try again.' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -145,19 +176,21 @@ export function LevelDialog({ opened, level, hierarchyName, existingNames, onClo
         <Select
           label="Required role"
           description="Only a user with this role can decide this level"
-          placeholder="Select role"
+          placeholder={rolesQuery.isPending ? 'Loading roles…' : 'Select role'}
+          disabled={rolesQuery.isPending}
+          nothingFoundMessage="No roles found"
           size="sm"
-          data={ROLE_NAMES}
+          data={roleOptions}
           allowDeselect={false}
           value={role}
           onChange={(v) => {
             setRole(v)
             setErrors((x) => ({ ...x, role: undefined }))
           }}
-          error={errors.role}
+          error={errors.role ?? (rolesQuery.isError ? 'Could not load the roles. Close and try again.' : undefined)}
         />
 
-        {role && (
+        {role && !usersQuery.isPending && (
           <div className="rounded-md bg-gray-50 px-4 py-3 text-sm">
             {users.length === 0 ? (
               <span className="text-red-600">
@@ -172,11 +205,17 @@ export function LevelDialog({ opened, level, hierarchyName, existingNames, onClo
           </div>
         )}
 
+        {errors.save && (
+          <Alert color="red" variant="light" icon={<AppIcon name="triangle-alert" />}>
+            <Text size="sm">{errors.save}</Text>
+          </Alert>
+        )}
+
         <div className="flex justify-end gap-2">
-          <Button size="xs" variant="default" onClick={onClose}>
+          <Button size="xs" variant="default" disabled={saving} onClick={onClose}>
             Cancel
           </Button>
-          <Button size="xs" leftSection={<AppIcon name="check" />} onClick={submit}>
+          <Button size="xs" leftSection={<AppIcon name="check" />} loading={saving} onClick={() => void submit()}>
             {editing ? 'Save changes' : 'Add level'}
           </Button>
         </div>

@@ -2,29 +2,38 @@ import { AppIcon } from '../../components/appIcon'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
-import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Modal, Text, Textarea } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Modal, Skeleton, Text, Textarea } from '@mantine/core'
+import { useQuery } from '@tanstack/react-query'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
 import { CustomTabs } from '../../components/customTabs'
+import { PageState } from '../../components/pageState'
 import { formatTzs } from '../../utils/format'
 import {
-  RANK,
   STATUS,
-  applications,
-  approvalsFor,
-  collateralsFor,
-  creditFor,
   estimateInstallment,
-  guarantorsFor,
   methodLabel,
   totalRepayable,
   type ApplicationStatus,
-  type ApprovalRow,
   type LoanApplication,
 } from './loanApplicationsData'
 import { usePageAccess } from '../auth/usePageAccess'
 import { useAuth } from '../../auth/authContext'
+import { useApplicants } from '../../api/applicants'
+import { useUserNames } from '../../api/users'
+import { useServerHierarchies, useServerLevels } from '../../api/approvalHierarchy'
+import {
+  decideApplication,
+  getApplicationWorkflow,
+  getApprovalLevels,
+  getDraftCollaterals,
+  getDraftGuarantors,
+  useApprovalDecisions,
+  useLoanApplications,
+  type ApprovalDecision,
+  type LoanDraft,
+} from '../../api/loanApplications'
 
 // our own rule, the API has no deadline: highlight applications waiting longer than this
 const LATE_AFTER_DAYS = 7
@@ -33,10 +42,21 @@ const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
 /* ---------- one application, seen from the approval stage ---------- */
 
+type LevelRow = {
+  levelId: number
+  levelNo: number
+  levelName: string
+  role: string
+  decision: 'APPROVED' | 'REJECTED' | 'PENDING'
+  /** who decided, with the date */
+  by: string | null
+  comments: string | null
+}
+
 type Row = LoanApplication & {
-  levels: ApprovalRow[]
+  levels: LevelRow[]
   /** the level that decides next, null when nothing is waiting */
-  current: ApprovalRow | null
+  current: LevelRow | null
   awaiting: boolean
   /** the logged-in user's role matches the current level */
   mine: boolean
@@ -45,47 +65,100 @@ type Row = LoanApplication & {
   approved: boolean
 }
 
-// a decision made in this session; each one fills the next pending level
-type Made = { decision: 'APPROVED' | 'REJECTED'; comments: string }
-
 // a rejection must explain itself, the API keeps the comment with the decision
 const MIN_REJECT_COMMENT = 5
 const MAX_COMMENT = 500
 
-function toRow(a: LoanApplication, made: Made[], role: string | null): Row {
-  const queue = [...made]
-  const levels: ApprovalRow[] = approvalsFor(a).map((l) => {
-    if (l.decision === 'PENDING' && queue.length > 0) {
-      const m = queue.shift()!
-      return { ...l, decision: m.decision, by: 'You', comments: m.comments || null }
-    }
-    return l
-  })
+// the history once wrote "APPROVE" where the status list says "APPROVED"; both mean the same
+const normalizeStatus = (s: string): ApplicationStatus => {
+  const up = s.toUpperCase()
+  const fixed = up === 'APPROVE' ? 'APPROVED' : up === 'REJECT' ? 'REJECTED' : up
+  return (fixed in STATUS ? fixed : 'SUBMITTED') as ApplicationStatus
+}
 
-  const inStage = a.status === 'CREDIT_APPROVED' || a.status === 'PENDING_APPROVAL'
+type Context = {
+  decisions: ApprovalDecision[]
+  /** the default hierarchy's active levels, in order: the chain the backend uses for new decisions */
+  chain: { id: number; levelNo: number; levelName: string; requiredRole: string }[]
+  /** every level of every hierarchy, to name the levels of past decisions */
+  levelById: Map<number, { levelNo: number; levelName: string; requiredRole: string }>
+  applicantName: (id: number) => string
+  userName: (id: number | null) => string
+  role: string | null
+}
+
+function toRow(d: LoanDraft, ctx: Context): Row | null {
+  const status = normalizeStatus(d.status)
+  const decided = ctx.decisions.filter((x) => x.applicationId === d.id)
+  const inStage = status === 'CREDIT_APPROVED' || status === 'PENDING_APPROVAL'
+  // only applications that reached the approval stage are listed here
+  if (!inStage && decided.length === 0) return null
+
+  const fromDecision = (x: ApprovalDecision): LevelRow => {
+    const l = x.levelId !== null ? ctx.levelById.get(x.levelId) : undefined
+    return {
+      levelId: x.levelId ?? 0,
+      levelNo: l?.levelNo ?? 0,
+      levelName: l?.levelName ?? 'Level',
+      role: l?.requiredRole ?? '—',
+      decision: x.decision.includes('REJECT') ? 'REJECTED' : 'APPROVED',
+      by: `${ctx.userName(x.approverId)}${x.decidedAt ? ` · ${dayjs(x.decidedAt).format('MMM D, YYYY')}` : ''}`,
+      comments: x.comments || null,
+    }
+  }
+
+  // waiting: the current chain, with the decisions already made filled in;
+  // decided: the decisions as they were made
+  const levels: LevelRow[] = inStage
+    ? ctx.chain.map((l) => {
+        const x = decided.find((dec) => dec.levelId === l.id)
+        return x
+          ? { ...fromDecision(x), levelNo: l.levelNo, levelName: l.levelName, role: l.requiredRole }
+          : {
+              levelId: l.id,
+              levelNo: l.levelNo,
+              levelName: l.levelName,
+              role: l.requiredRole,
+              decision: 'PENDING' as const,
+              by: null,
+              comments: null,
+            }
+      })
+    : decided.map(fromDecision)
+
   const rejected = levels.some((l) => l.decision === 'REJECTED')
   const current = inStage && !rejected ? (levels.find((l) => l.decision === 'PENDING') ?? null) : null
   const awaiting = current !== null
-  const approved = (a.status !== 'REJECTED' && RANK[a.status] >= 3) || (inStage && !awaiting && !rejected)
-
-  let status: ApplicationStatus = a.status
-  if (inStage && rejected) status = 'REJECTED'
-  else if (inStage && approved) status = 'APPROVED'
-  else if (inStage && made.length > 0) status = 'PENDING_APPROVAL'
+  const approved = !inStage && !rejected && status !== 'REJECTED' && levels.some((l) => l.decision === 'APPROVED')
 
   return {
-    ...a,
-    status,
+    id: d.id,
+    applicationNo: d.applicationNo || `#${d.id}`,
+    applicantId: d.applicantId,
+    applicantName: ctx.applicantName(d.applicantId),
+    loanOfficer: d.loanOfficerId ? ctx.userName(d.loanOfficerId) : '—',
+    requestedAmount: d.requestedAmount ?? 0,
+    interestMethod: d.interestMethod ?? 'REDUCING',
+    interestRate: d.interestRate ?? 0,
+    tenure: d.tenure ?? 0,
+    penaltyRate: d.penaltyRate ?? 0,
+    guarantorRequired: d.guarantorRequired,
+    collateralRequired: d.collateralRequired,
+    creditAssessmentRequired: d.creditAssessmentRequired,
+    status: rejected ? 'REJECTED' : status,
+    currentStage: d.currentStage || 'APPROVAL',
+    created: d.createdAt,
+    submittedAt: d.submittedAt,
     levels,
     current,
     awaiting,
-    mine: awaiting && !!current && role !== null && current.role === role,
+    mine: awaiting && !!current && ctx.role !== null && current.role.trim() === ctx.role.trim(),
     rejected,
     approved,
   }
 }
 
-const waitingDays = (a: LoanApplication) => dayjs().diff(dayjs(a.submittedAt ?? a.created), 'day')
+const waitingDays = (a: LoanApplication) => dayjs().diff(dayjs(a.submittedAt || a.created), 'day')
 
 const statusOptions = [
   { value: 'CREDIT_APPROVED', label: STATUS.CREDIT_APPROVED.label },
@@ -122,13 +195,7 @@ function SectionTitle({ children }: { children: string }) {
   )
 }
 
-const PILL_COLOR: Record<string, string> = {
-  APPROVED: 'green',
-  APPROVE: 'green',
-  PENDING: 'gray',
-  REJECTED: 'red',
-  REJECT: 'red',
-}
+const PILL_COLOR: Record<string, string> = { APPROVED: 'green', PENDING: 'gray', REJECTED: 'red' }
 
 function Pill({ value }: { value: string }) {
   return (
@@ -174,26 +241,29 @@ function DecisionBadge({ r }: { r: Row }) {
 
 // one segment per approval level, the current level is highlighted
 function LevelBar({ r }: { r: Row }) {
+  if (r.levels.length === 0) {
+    return <div className="text-xs text-gray-400">No approval level set up</div>
+  }
   const rejected = r.levels.find((l) => l.decision === 'REJECTED')
 
   const text = r.current
     ? `Level ${r.current.levelNo} of ${r.levels.length} · ${r.current.levelName}`
     : rejected
-      ? `Rejected at level ${rejected.levelNo}`
-      : `All ${r.levels.length} levels approved`
+      ? `Rejected at ${rejected.levelName}`
+      : `${r.levels.length} ${r.levels.length === 1 ? 'level' : 'levels'} approved`
 
   return (
     <div>
       <div className="flex w-28 gap-0.5" aria-hidden="true">
-        {r.levels.map((l) => (
+        {r.levels.map((l, i) => (
           <span
-            key={l.levelNo}
+            key={`${l.levelId}-${i}`}
             className={`h-1.5 flex-1 rounded-full ${
               l.decision === 'APPROVED'
                 ? 'bg-brand'
                 : l.decision === 'REJECTED'
                   ? 'bg-red-400'
-                  : r.current?.levelNo === l.levelNo
+                  : r.current?.levelId === l.levelId
                     ? 'bg-yellow-400'
                     : 'bg-gray-200'
             }`}
@@ -210,27 +280,26 @@ function LevelBar({ r }: { r: Row }) {
 type DrawerProps = {
   row: Row | null
   onClose: () => void
-  onApprove: (r: Row, comments: string) => void
-  onReject: (r: Row, comments: string) => void
+  onDecide: (r: Row, decision: 'approve' | 'reject', comments: string) => Promise<void>
 }
 
 // the comment box with the Approve and Reject buttons. The drawer gives it a new key for every level,
 // so the text starts empty each time
 function DecisionForm({
   row: r,
-  onApprove,
-  onReject,
+  onDecide,
 }: {
   row: Row
-  onApprove: (comments: string) => void
-  onReject: (comments: string) => void
+  onDecide: (decision: 'approve' | 'reject', comments: string) => Promise<void>
 }) {
   const [comments, setComments] = useState('')
   const [error, setError] = useState<string>()
   const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState<'approve' | 'reject' | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const text = comments.trim()
-  const isLast = r.current?.levelNo === r.levels.length
+  const isLast = r.current !== null && r.levels.indexOf(r.current) === r.levels.length - 1
 
   // rejecting needs a reason, so check it before asking "are you sure"
   const askReject = () => {
@@ -239,6 +308,20 @@ function DecisionForm({
       return
     }
     setConfirming(true)
+  }
+
+  const decide = async (decision: 'approve' | 'reject') => {
+    if (busy) return
+    setConfirming(false)
+    setSaveError(null)
+    setBusy(decision)
+    try {
+      await onDecide(decision, text)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Could not save the decision. Please try again.')
+    } finally {
+      setBusy(null)
+    }
   }
 
   return (
@@ -250,6 +333,7 @@ function DecisionForm({
         minRows={3}
         autosize
         maxLength={MAX_COMMENT}
+        disabled={busy !== null}
         value={comments}
         onChange={(e) => {
           setComments(e.currentTarget.value)
@@ -262,14 +346,33 @@ function DecisionForm({
       </div>
       {isLast && (
         <Text size="xs" c="dimmed">
-          This is the last level. Approving it takes you straight to Contracts.
+          This is the last level. Approving it makes the application Approved, ready for its contract.
         </Text>
       )}
+      {saveError && (
+        <Alert color="red" variant="light" icon={<AppIcon name="circle-x" />}>
+          <Text size="sm">{saveError}</Text>
+        </Alert>
+      )}
       <div className="flex justify-end gap-2">
-        <Button size="xs" color="red" variant="light" leftSection={<AppIcon name="x" />} onClick={askReject}>
+        <Button
+          size="xs"
+          color="red"
+          variant="light"
+          leftSection={<AppIcon name="x" />}
+          loading={busy === 'reject'}
+          disabled={busy === 'approve'}
+          onClick={askReject}
+        >
           Reject
         </Button>
-        <Button size="xs" leftSection={<AppIcon name="check" />} onClick={() => onApprove(text)}>
+        <Button
+          size="xs"
+          leftSection={<AppIcon name="check" />}
+          loading={busy === 'approve'}
+          disabled={busy === 'reject'}
+          onClick={() => void decide('approve')}
+        >
           Approve
         </Button>
       </div>
@@ -288,15 +391,7 @@ function DecisionForm({
             <Button size="xs" variant="default" onClick={() => setConfirming(false)}>
               Go back
             </Button>
-            <Button
-              size="xs"
-              color="red"
-              leftSection={<AppIcon name="x" />}
-              onClick={() => {
-                setConfirming(false)
-                onReject(text)
-              }}
-            >
+            <Button size="xs" color="red" leftSection={<AppIcon name="x" />} onClick={() => void decide('reject')}>
               Reject application
             </Button>
           </div>
@@ -306,24 +401,44 @@ function DecisionForm({
   )
 }
 
-function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
+function ReviewDrawer({ row, onClose, onDecide }: DrawerProps) {
   const navigate = useNavigate()
   const { canApprove } = usePageAccess('loans', 'approvals')
+  const id = row?.id ?? 0
+
+  // the same reads (and cache) as the application page
+  const workflowQuery = useQuery({
+    queryKey: ['loan-applications', id, 'workflow'],
+    queryFn: () => getApplicationWorkflow(id),
+    enabled: id > 0,
+  })
+  const guarantorsQuery = useQuery({
+    queryKey: ['loan-applications', id, 'guarantors'],
+    queryFn: () => getDraftGuarantors(id),
+    enabled: id > 0 && !!row?.guarantorRequired,
+  })
+  const collateralsQuery = useQuery({
+    queryKey: ['loan-applications', id, 'collaterals'],
+    queryFn: () => getDraftCollaterals(id),
+    enabled: id > 0 && !!row?.collateralRequired,
+  })
+
   if (!row) {
     return <Drawer opened={false} onClose={onClose} />
   }
 
   const r = row
-  const guarantors = guarantorsFor(r)
-  const collaterals = collateralsFor(r)
-  const credit = creditFor(r)
   const installment = Math.round(estimateInstallment(r))
-  const collateralValue = collaterals.reduce((sum, c) => sum + c.value, 0)
+  const credit = workflowQuery.data?.credit ?? null
+  const guarantors = guarantorsQuery.data ?? []
+  const collaterals = collateralsQuery.data ?? []
+  const collateralValue = collaterals.reduce((sum, c) => sum + (c.estimatedValue ?? 0), 0)
+  const loadingChecks = workflowQuery.isPending || (r.guarantorRequired && guarantorsQuery.isPending) || (r.collateralRequired && collateralsQuery.isPending)
 
   const tiles = [
     { label: 'Requested amount', value: formatTzs(r.requestedAmount) },
-    { label: 'Est. monthly installment', value: formatTzs(installment) },
-    { label: 'Est. total repayable', value: formatTzs(Math.round(totalRepayable(r))) },
+    { label: 'Est. monthly installment', value: r.tenure > 0 ? formatTzs(installment) : '—' },
+    { label: 'Est. total repayable', value: r.tenure > 0 ? formatTzs(Math.round(totalRepayable(r))) : '—' },
   ]
 
   return (
@@ -332,7 +447,7 @@ function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
         <div className="flex flex-wrap items-center gap-2">
           <DecisionBadge r={r} />
           <Text size="xs" c="dimmed">
-            {r.applicationNo} · Loan officer {r.loanOfficer}
+            {r.applicationNo} · Recorded by {r.loanOfficer}
           </Text>
         </div>
 
@@ -355,32 +470,46 @@ function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
 
         <div>
           <SectionTitle>Checks completed</SectionTitle>
-          <Field
-            label="Guarantors"
-            value={
-              r.guarantorRequired
-                ? `${guarantors.filter((g) => g.status === 'VERIFIED').length} of ${guarantors.length} verified`
-                : 'Not required'
-            }
-          />
-          <Field
-            label="Collateral"
-            value={
-              r.collateralRequired
-                ? `${collaterals.length} ${collaterals.length === 1 ? 'asset' : 'assets'} · ${formatTzs(collateralValue)} (${Math.round((collateralValue / r.requestedAmount) * 100)}% of the loan)`
-                : 'Not required'
-            }
-          />
-          <Field
-            label="Credit assessment"
-            value={
-              credit
-                ? `${credit.decision === 'APPROVE' ? 'Approved' : 'Denied'} · cash flow ${formatTzs(credit.cashFlow)}`
-                : r.creditAssessmentRequired
-                  ? 'Not run yet'
-                  : 'Switched off'
-            }
-          />
+          {loadingChecks ? (
+            <div className="space-y-2 pt-1">
+              <Skeleton height={14} />
+              <Skeleton height={14} />
+              <Skeleton height={14} />
+            </div>
+          ) : (
+            <>
+              <Field
+                label="Guarantors"
+                value={
+                  r.guarantorRequired
+                    ? `${guarantors.filter((g) => g.idVerified && g.exposureVerified).length} of ${guarantors.length} verified`
+                    : 'Not required'
+                }
+              />
+              <Field
+                label="Collateral"
+                value={
+                  r.collateralRequired
+                    ? `${collaterals.length} ${collaterals.length === 1 ? 'asset' : 'assets'} · ${formatTzs(collateralValue)}${
+                        r.requestedAmount > 0 ? ` (${Math.round((collateralValue / r.requestedAmount) * 100)}% of the loan)` : ''
+                      }`
+                    : 'Not required'
+                }
+              />
+              <Field
+                label="Credit assessment"
+                value={
+                  credit
+                    ? `${credit.decision === 'APPROVE' ? 'Approved' : credit.decision === 'REJECT' ? 'Denied' : 'Done'}${
+                        credit.cashFlow !== null ? ` · cash flow ${formatTzs(credit.cashFlow)}` : ''
+                      }`
+                    : r.creditAssessmentRequired
+                      ? 'Not run yet'
+                      : 'Switched off'
+                }
+              />
+            </>
+          )}
         </div>
 
         <div>
@@ -388,31 +517,40 @@ function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
           <p className="mb-3 text-xs text-gray-500">
             Each level must approve in order. A rejection at any level stops the application.
           </p>
-          <ul className="space-y-2">
-            {r.levels.map((l) => (
-              <li
-                key={l.levelNo}
-                className={`flex items-start gap-3 rounded-md border px-3 py-3 ${
-                  r.current?.levelNo === l.levelNo ? 'border-brand bg-brand-subtle' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-medium text-gray-600">
-                  {l.levelNo}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-gray-800">{l.levelName}</div>
-                  <div className="text-xs text-gray-500">Required role: {l.role}</div>
-                  {l.by && (
-                    <div className="mt-1 text-xs text-gray-500">
-                      {l.by}
-                      {l.comments ? ` · "${l.comments}"` : ''}
-                    </div>
-                  )}
-                </div>
-                <Pill value={l.decision} />
-              </li>
-            ))}
-          </ul>
+          {r.levels.length === 0 ? (
+            <Alert color="yellow" variant="light" icon={<AppIcon name="triangle-alert" />}>
+              <Text size="sm">
+                The hierarchy in use has no active level, so nobody can decide this application. Add a level on the
+                Approval Hierarchy page.
+              </Text>
+            </Alert>
+          ) : (
+            <ul className="space-y-2">
+              {r.levels.map((l, i) => (
+                <li
+                  key={`${l.levelId}-${i}`}
+                  className={`flex items-start gap-3 rounded-md border px-3 py-3 ${
+                    r.current?.levelId === l.levelId ? 'border-brand bg-brand-subtle' : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-medium text-gray-600">
+                    {l.levelNo || i + 1}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-800">{l.levelName}</div>
+                    <div className="text-xs text-gray-500">Required role: {l.role}</div>
+                    {l.by && (
+                      <div className="mt-1 text-xs text-gray-500">
+                        {l.by}
+                        {l.comments ? ` · "${l.comments}"` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <Pill value={l.decision} />
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
         {/* the decision, only while the application is waiting */}
@@ -421,19 +559,18 @@ function ReviewDrawer({ row, onClose, onApprove, onReject }: DrawerProps) {
             <SectionTitle>{`Your decision · Level ${r.current.levelNo}: ${r.current.levelName}`}</SectionTitle>
             {r.mine && canApprove ? (
               <DecisionForm
-                key={`${r.id}-${r.current.levelNo}`}
+                key={`${r.id}-${r.current.levelId}`}
                 row={r}
-                onApprove={(c) => onApprove(r, c)}
-                onReject={(c) => onReject(r, c)}
+                onDecide={(decision, comments) => onDecide(r, decision, comments)}
               />
             ) : (
-            <Alert color="yellow" variant="light" icon={<AppIcon name="lock-keyhole" />}>
-              <Text size="sm">
-                {r.mine
-                  ? 'Your role is not allowed to approve or reject applications.'
-                  : `This application is waiting for the ${r.current.levelName} level. Only a user with the ${r.current.role} role can decide it.`}
-              </Text>
-            </Alert>
+              <Alert color="yellow" variant="light" icon={<AppIcon name="lock-keyhole" />}>
+                <Text size="sm">
+                  {r.mine
+                    ? 'Your role is not allowed to approve or reject applications.'
+                    : `This application is waiting for the ${r.current.levelName} level. Only a user with the ${r.current.role} role can decide it.`}
+                </Text>
+              </Alert>
             )}
           </div>
         )}
@@ -458,11 +595,30 @@ export function ApprovalsPage() {
   const role = user?.role ?? null
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  // UI only: decisions made in this session, nothing is saved yet
-  const [decisions, setDecisions] = useState<Record<number, Made[]>>({})
   const [notice, setNotice] = useState<{ text: string; color: 'green' | 'red' } | null>(null)
 
-  const rows = useMemo(() => applications.map((a) => toRow(a, decisions[a.id] ?? [], role)), [decisions, role])
+  // GET /api/loan-applications, /api/approvals, the default chain and every level (to name past decisions)
+  const listQuery = useLoanApplications()
+  const decisionsQuery = useApprovalDecisions()
+  const chainQuery = useQuery({ queryKey: ['approval-levels'], queryFn: getApprovalLevels, staleTime: 60_000 })
+  const hierarchiesQuery = useServerHierarchies()
+  const allLevels = useServerLevels((hierarchiesQuery.data ?? []).map((h) => h.id))
+  const { data: applicantList = [] } = useApplicants()
+  // GET /api/users is Admin-only; without it the names fall back to "User #id"
+  const userNames = useUserNames()
+
+  const rows = useMemo(() => {
+    const ctx: Context = {
+      decisions: decisionsQuery.data ?? [],
+      chain: chainQuery.data ?? [],
+      levelById: new Map(allLevels.map((l) => [l.id, l])),
+      applicantName: (id) => applicantList.find((a) => a.id === id)?.name ?? `Applicant #${id}`,
+      userName: (id) => (id === null ? '—' : id === user?.id ? 'You' : (userNames.get(id) ?? `User #${id}`)),
+      role,
+    }
+    return (listQuery.data ?? []).map((d) => toRow(d, ctx)).filter((r): r is Row => r !== null)
+  }, [listQuery.data, decisionsQuery.data, chainQuery.data, allLevels, applicantList, userNames, role, user?.id])
+
   const awaiting = rows.filter((r) => r.awaiting)
   const mine = awaiting.filter((r) => r.mine)
   const decided = rows.filter((r) => r.approved || r.rejected)
@@ -489,36 +645,28 @@ export function ApprovalsPage() {
   const open = (r: Row) => setParams({ review: String(r.id) }, { replace: true })
   const close = () => setParams({}, { replace: true })
 
-  const approve = (r: Row, comments: string) => {
-    // TODO: POST /api/loan-origination/applications/{applicationId}/approve { approverId, comments }
-    setDecisions((d) => ({ ...d, [r.id]: [...(d[r.id] ?? []), { decision: 'APPROVED', comments }] }))
-
-    // the final level approved: go straight to Contracts with this contract's panel open
-    if (r.current?.levelNo === r.levels.length) {
-      navigate(`/loan-contracts?contract=${r.id}`, { state: { approvedId: r.id } })
+  // POST .../approve or .../reject; an error is thrown back to the form and shown there
+  const decide = async (r: Row, decision: 'approve' | 'reject', comments: string) => {
+    if (!user) throw new Error('Your user could not be read. Log out and back in, then try again.')
+    const level = r.current
+    const isLast = level !== null && r.levels.indexOf(level) === r.levels.length - 1
+    await decideApplication(r.id, decision, { approverId: user.id, comments })
+    close()
+    if (decision === 'reject') {
+      setTab('decided')
+      setNotice({
+        text: `${r.applicantName} was rejected at the ${level?.levelName ?? 'current'} level. The application is stopped.`,
+        color: 'red',
+      })
       return
     }
-
-    // an earlier level approved: it moves on to the next level
-    const nextLevel = r.levels.find((l) => l.levelNo === (r.current?.levelNo ?? 0) + 1)
-    close()
+    const next = level ? r.levels[r.levels.indexOf(level) + 1] : undefined
+    if (isLast) setTab('decided')
     setNotice({
-      text: `${r.applicantName} approved at the ${r.current?.levelName} level.${
-        nextLevel ? ` It now waits for ${nextLevel.levelName}.` : ''
-      }`,
       color: 'green',
-    })
-  }
-
-  const reject = (r: Row, comments: string) => {
-    // TODO: POST /api/loan-origination/applications/{applicationId}/reject { approverId, comments }
-    //       a rejection at any level halts the application as REJECTED
-    setDecisions((d) => ({ ...d, [r.id]: [...(d[r.id] ?? []), { decision: 'REJECTED', comments }] }))
-    close()
-    setTab('decided')
-    setNotice({
-      text: `${r.applicantName} was rejected at the ${r.current?.levelName} level. The application is stopped.`,
-      color: 'red',
+      text: isLast
+        ? `${r.applicantName} is fully approved. Next, its contract is generated.`
+        : `${r.applicantName} approved at the ${level?.levelName ?? 'current'} level.${next ? ` It now waits for ${next.levelName}.` : ''}`,
     })
   }
 
@@ -548,28 +696,21 @@ export function ApprovalsPage() {
       exportValue: (r) => r.requestedAmount,
     },
     {
-      // accessor only carries the column, the content is built from the credit assessment
+      // the estimate from the loan terms; cash flow and the checks are in the drawer
       accessor: 'creditAssessmentRequired',
-      header: 'Affordability',
+      header: 'Installment',
       sortable: false,
-      render: (r) => {
-        const credit = creditFor(r)
-        if (!credit) {
-          return <span className="text-xs text-gray-400">Credit check skipped</span>
-        }
-        return (
-          <div>
-            <div className="whitespace-nowrap text-sm text-gray-800">Cash flow {formatTzs(credit.cashFlow)}</div>
-            <div className="whitespace-nowrap text-xs text-gray-500">
-              Installment {formatTzs(Math.round(estimateInstallment(r)))}
-            </div>
+      render: (r) => (
+        <div>
+          <div className="whitespace-nowrap text-sm text-gray-800">
+            {r.tenure > 0 ? formatTzs(Math.round(estimateInstallment(r))) : '—'}
           </div>
-        )
-      },
-      exportValue: (r) => {
-        const credit = creditFor(r)
-        return credit ? `Cash flow ${credit.cashFlow} / installment ${Math.round(estimateInstallment(r))}` : 'Skipped'
-      },
+          <div className="whitespace-nowrap text-xs text-gray-500">
+            {r.creditAssessmentRequired ? 'Credit checked' : 'Credit check skipped'}
+          </div>
+        </div>
+      ),
+      exportValue: (r) => (r.tenure > 0 ? Math.round(estimateInstallment(r)) : ''),
     },
     {
       accessor: 'status',
@@ -595,12 +736,12 @@ export function ApprovalsPage() {
               {r.awaiting ? `${waitingDays(r)} days` : '—'}
             </div>
             <div className="whitespace-nowrap text-xs text-gray-500">
-              Submitted {dayjs(r.submittedAt ?? r.created).format('MMM D, YYYY')}
+              Submitted {dayjs(r.submittedAt || r.created).format('MMM D, YYYY')}
             </div>
           </div>
         )
       },
-      exportValue: (r) => r.submittedAt ?? r.created,
+      exportValue: (r) => r.submittedAt || r.created,
     },
     {
       // the row menu; "id" is only used as the accessor
@@ -619,16 +760,10 @@ export function ApprovalsPage() {
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<AppIcon name={r.mine ? 'gavel' : 'eye'} />}
-                onClick={() => open(r)}
-              >
+              <Menu.Item leftSection={<AppIcon name={r.mine ? 'gavel' : 'eye'} />} onClick={() => open(r)}>
                 {r.mine ? 'Review and decide' : 'View details'}
               </Menu.Item>
-              <Menu.Item
-                leftSection={<AppIcon name="file-text" />}
-                onClick={() => navigate(`/loan-applications/${r.id}`)}
-              >
+              <Menu.Item leftSection={<AppIcon name="file-text" />} onClick={() => navigate(`/loan-applications/${r.id}`)}>
                 Open application
               </Menu.Item>
             </Menu.Dropdown>
@@ -638,68 +773,79 @@ export function ApprovalsPage() {
     },
   ]
 
+  const loadError = listQuery.error ?? decisionsQuery.error ?? chainQuery.error
   return (
     <DashboardLayout
       title="Approvals"
       subtitle="Applications waiting for an approval decision"
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Loans' }, { label: 'Approvals' }]}
     >
-      <div className="space-y-4">
-        {notice && (
-          <Alert
-            color={notice.color}
-            variant="light"
-            withCloseButton
-            onClose={() => setNotice(null)}
-            icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'circle-x'} />}
-          >
-            <Text size="sm">{notice.text}</Text>
-          </Alert>
-        )}
+      <PageState
+        loading={listQuery.isPending || decisionsQuery.isPending || chainQuery.isPending}
+        error={loadError instanceof Error ? loadError.message : null}
+        onRetry={() => {
+          void listQuery.refetch()
+          void decisionsQuery.refetch()
+          void chainQuery.refetch()
+        }}
+      >
+        <div className="space-y-4">
+          {notice && (
+            <Alert
+              color={notice.color}
+              variant="light"
+              withCloseButton
+              onClose={() => setNotice(null)}
+              icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'circle-x'} />}
+            >
+              <Text size="sm">{notice.text}</Text>
+            </Alert>
+          )}
 
-        {/* row 1: key numbers */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          {stats.map((s) => (
-            <StatWidget key={s.label} {...s} />
-          ))}
+          {/* row 1: key numbers */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {stats.map((s) => (
+              <StatWidget key={s.label} {...s} />
+            ))}
+          </div>
+
+          {/* row 2: table in a plain card */}
+          <div className={`${CARD} p-4`}>
+            <CustomTabs
+              ariaLabel="Approval filters"
+              className="mb-3 w-fit p-0"
+              value={tab}
+              onChange={(value) => setTab(value as TabKey)}
+              tabs={[
+                { value: 'awaiting', label: `Awaiting decision (${awaiting.length})` },
+                { value: 'mine', label: `Needs my decision (${mine.length})` },
+                { value: 'decided', label: `Decided (${decided.length})` },
+                { value: 'all', label: `All (${queue.length})` },
+              ]}
+            />
+
+            <CustomTable<Row>
+              size="md"
+              data={tabData[tab]}
+              columns={columns}
+              searchInput
+              searchPlaceholder="Search application"
+              searchKeys={['applicationNo', 'applicantName', 'loanOfficer']}
+              filters={{ status: statusOptions, submittedAt: 'date' }}
+              // oldest first, so the applications waiting longest are at the top
+              defaultSort={{ accessor: 'submittedAt', direction: 'asc' }}
+              noRecordText={TAB_EMPTY[tab]}
+              onRowClick={(row) => open(row)}
+              exportCsv
+              exportFileName="approvals"
+              print
+              printTitle="Approvals"
+            />
+          </div>
         </div>
+      </PageState>
 
-        {/* row 2: table in a plain card */}
-        <div className={`${CARD} p-4`}>
-          <CustomTabs
-            ariaLabel="Approval filters"
-            className="mb-3 w-fit p-0"
-            value={tab}
-            onChange={(value) => setTab(value as TabKey)}
-            tabs={[
-              { value: 'awaiting', label: `Awaiting decision (${awaiting.length})` },
-              { value: 'mine', label: `Needs my decision (${mine.length})` },
-              { value: 'decided', label: `Decided (${decided.length})` },
-              { value: 'all', label: `All (${queue.length})` },
-            ]}
-          />
-
-          <CustomTable<Row>
-            size="md"
-            data={tabData[tab]}
-            columns={columns}
-            searchInput
-            searchPlaceholder="Search application"
-            searchKeys={['applicationNo', 'applicantName', 'loanOfficer']}
-            filters={{ status: statusOptions, submittedAt: 'date' }}
-            // oldest first, so the applications waiting longest are at the top
-            defaultSort={{ accessor: 'submittedAt', direction: 'asc' }}
-            noRecordText={TAB_EMPTY[tab]}
-            onRowClick={(row) => open(row)}
-            exportCsv
-            exportFileName="approvals"
-            print
-            printTitle="Approvals"
-          />
-        </div>
-      </div>
-
-      <ReviewDrawer row={selected} onClose={close} onApprove={approve} onReject={reject} />
+      <ReviewDrawer row={selected} onClose={close} onDecide={decide} />
     </DashboardLayout>
   )
 }

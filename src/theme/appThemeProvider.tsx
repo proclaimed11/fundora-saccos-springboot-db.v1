@@ -57,7 +57,8 @@ function getInitialSidebarAppearance(): SidebarAppearance {
 }
 
 function getInitialHeaderStyle(): HeaderStyle {
-  return window.localStorage.getItem(HEADER_STYLE_STORAGE_KEY) === 'texture' ? 'texture' : 'botanical'
+  const saved = window.localStorage.getItem(HEADER_STYLE_STORAGE_KEY)
+  return saved === 'texture' || saved === 'dots' ? saved : 'botanical'
 }
 
 function isHexColor(value: unknown): value is string {

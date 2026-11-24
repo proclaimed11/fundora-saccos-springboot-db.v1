@@ -18,7 +18,8 @@ const isHexColor = (value: string) => /^#[\da-f]{6}$/i.test(value)
 // the header looks the user can switch between
 const HEADER_OPTIONS: { id: HeaderStyle; name: string; description: string }[] = [
   { id: 'botanical', name: 'Botanical', description: 'The current header with the leaf pattern in your brand color.' },
-  { id: 'texture', name: 'Soft texture', description: 'A calm, light texture with flowing lines.' },
+  { id: 'texture', name: 'Soft texture', description: 'A calm, light texture with flowing lines in your brand color.' },
+  { id: 'dots', name: 'Dotted grid', description: 'Fine dots in your brand color, fading towards the middle.' },
 ]
 
 /* ---------- a color field that can be typed in ---------- */
@@ -251,7 +252,7 @@ export function ThemeSettingsPage() {
               </Text>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {HEADER_OPTIONS.map((option) => {
                 const isSelected = headerStyle === option.id
                 return (
@@ -273,12 +274,16 @@ export function ThemeSettingsPage() {
                     {/* small preview of the header band */}
                     <span
                       className={`mt-3 block h-14 rounded border border-gray-200 ${
-                        option.id === 'texture' ? 'texture-pattern' : ''
+                        option.id === 'texture' ? 'texture-pattern' : option.id === 'dots' ? 'dots-pattern' : ''
                       }`}
                       style={
                         option.id === 'texture'
-                          ? undefined
-                          : {
+                          ? // the preview follows the palette being chosen, before it is applied
+                            ({ '--texture-preview-brand': surfaceColors.primary } as React.CSSProperties)
+                          : option.id === 'dots'
+                            ? // the preview follows the palette being chosen, before it is applied
+                              ({ '--dots-preview-brand': surfaceColors.primary } as React.CSSProperties)
+                            : {
                               backgroundColor: '#ffffff',
                               backgroundImage: `radial-gradient(ellipse 90px 24px at 15% 100%, color-mix(in srgb, ${surfaceColors.primary} 18%, white) 0 60%, transparent 64%), radial-gradient(ellipse 90px 24px at 85% 100%, color-mix(in srgb, ${surfaceColors.primary} 18%, white) 0 60%, transparent 64%)`,
                             }
@@ -374,7 +379,7 @@ export function ThemeSettingsPage() {
           <LivePreview colors={surfaceColors} sidebarAppearance={sidebarAppearance} />
           <Text size="xs" c="dimmed" mt="sm">
             Palette: {palette.name} · Sidebar: {sidebarAppearance === 'dark' ? 'Dark' : 'Light'} · Header:{' '}
-            {headerStyle === 'texture' ? 'Soft texture' : 'Botanical'}
+            {HEADER_OPTIONS.find((o) => o.id === headerStyle)?.name ?? 'Botanical'}
           </Text>
         </aside>
       </div>
