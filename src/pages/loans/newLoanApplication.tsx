@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  CloseButton,
   Collapse,
   FileInput,
   Group,
@@ -19,9 +20,10 @@ import {
   Text,
   TextInput,
   Textarea,
+  Tooltip,
 } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
-import { formatTzs } from '../../utils/format'
+import { NIDA_DIGITS, formatNida, formatTzs, nidaDigitCount } from '../../utils/format'
 import { STATUS as APPLICANT_STATUS } from '../applicants/applicantsData'
 import { useApplicants } from '../../api/applicants'
 import { toUser, useApiUsers } from '../../api/users'
@@ -56,7 +58,8 @@ import {
   startLoanApplication,
   useLatestLoanApplication,
   verifyCollateral,
-  verifyGuarantor,
+  sendGuarantorOtp,
+  verifyGuarantorOtp,
   runCreditAssessment,
   useUnfinishedLoans,
   type CreditAssessmentResult,
@@ -67,6 +70,7 @@ import {
 } from '../../api/loanApplications'
 import { useQuery } from '@tanstack/react-query'
 import { AppIcon, stepIcon } from '../../components/appIcon'
+import { notifications } from '@mantine/notifications'
 /* ---------- types ---------- */
 
 // each guarantor and asset has its own id so the forms keep their state when one is removed
@@ -81,18 +85,23 @@ type GuarantorItem = {
   email: string
   locationName: string
   locationPin: string
-  idVerified: boolean
-  exposureVerified: boolean
+  /** the guarantor confirmed with the emailed code (status VERIFIED on the server) */
+  otpVerified: boolean
+  /** the officer's tick: the guarantor's existing debts and guarantees were checked (needed to verify) */
+  exposureChecked: boolean
+  /** when the last code was sent in this session, for the 60 second resend wait and the 24 hour note */
+  otpSentAt: number | null
   /** the guarantor's id on the server, null until it is first saved */
   serverId: number | null
   /** what was last saved, so an unchanged card is not sent again */
   savedSig: string
-  savedCheckSig: string
 }
 
 type CollateralItem = {
   uid: number
   type: string
+  /** the exact asset typed in when the type is 'Other', e.g. "Livestock" */
+  otherType: string
   description: string
   value: number | ''
   ownershipVerified: boolean
@@ -218,16 +227,17 @@ const newGuarantor = (): GuarantorItem => ({
   email: '',
   locationName: '',
   locationPin: '',
-  idVerified: false,
-  exposureVerified: false,
+  otpVerified: false,
+  exposureChecked: false,
+  otpSentAt: null,
   serverId: null,
   savedSig: '',
-  savedCheckSig: checkSigOfGuarantor({ idVerified: false, exposureVerified: false }),
 })
 
 const newCollateral = (): CollateralItem => ({
   uid: nextUid++,
   type: '',
+  otherType: '',
   description: '',
   value: '',
   ownershipVerified: false,
@@ -244,6 +254,10 @@ const newCollateral = (): CollateralItem => ({
   savedCheckSig: checkSigOfCollateral({ ownershipVerified: false, pledgeVerified: false, remarks: '' }),
 })
 
+// the type saved and shown: the typed-in asset when 'Other' is picked, otherwise the list value
+const assetType = (c: Pick<CollateralItem, 'type' | 'otherType'>) =>
+  c.type === 'Other' ? c.otherType.trim() : c.type
+
 /* ---------- what is saved for each card (compared with what was saved last time) ---------- */
 
 function sigOfGuarantor(
@@ -253,11 +267,8 @@ function sigOfGuarantor(
     [g.name, g.phone, g.idNumber, g.address, g.email, g.locationName, g.locationPin].map((x) => x.trim()),
   )
 }
-function checkSigOfGuarantor(g: Pick<GuarantorItem, 'idVerified' | 'exposureVerified'>) {
-  return JSON.stringify([g.idVerified, g.exposureVerified])
-}
-function sigOfCollateral(c: Pick<CollateralItem, 'type' | 'description' | 'value'>) {
-  return JSON.stringify([c.type, c.description.trim(), c.value])
+function sigOfCollateral(c: Pick<CollateralItem, 'type' | 'otherType' | 'description' | 'value'>) {
+  return JSON.stringify([assetType(c), c.description.trim(), c.value])
 }
 function docSigOf(c: Pick<CollateralItem, 'documentNumber' | 'document' | 'savedFileName'>) {
   return JSON.stringify([c.documentNumber.trim(), c.document?.name ?? c.savedFileName])
@@ -279,11 +290,14 @@ function guarantorsFromServer(list: SavedGuarantor[]): GuarantorItem[] {
       email: s.email,
       locationName: s.locationName,
       locationPin: s.locationPin,
-      idVerified: s.idVerified,
-      exposureVerified: s.exposureVerified,
+      // the officer's tick was required to verify, so a verified guarantor has it
+      otpVerified: s.idVerified,
+      exposureChecked: s.idVerified,
+      // a code sent before leaving the page is still running (remembered in this browser)
+      otpSentAt: s.idVerified ? null : recalledOtpSent(s.id),
       serverId: s.id,
     }
-    return { ...g, savedSig: sigOfGuarantor(g), savedCheckSig: checkSigOfGuarantor(g) }
+    return { ...g, savedSig: sigOfGuarantor(g) }
   })
 }
 
@@ -293,6 +307,8 @@ function collateralsFromServer(list: SavedCollateral[]): CollateralItem[] {
     const c: CollateralItem = {
       ...newCollateral(),
       type: COLLATERAL_TYPES.includes(s.collateralType) ? s.collateralType : s.collateralType ? 'Other' : '',
+      // a type that is not in the list was typed in under 'Other'
+      otherType: COLLATERAL_TYPES.includes(s.collateralType) ? '' : s.collateralType,
       description: s.description,
       value: s.estimatedValue ?? '',
       ownershipVerified: s.ownershipVerified,
@@ -327,7 +343,7 @@ const emptyValues = (): FormValues => ({
   hasPendingPayments: false,
 })
 
-const guarantorVerified = (g: GuarantorItem) => g.idVerified && g.exposureVerified
+const guarantorVerified = (g: GuarantorItem) => g.otpVerified
 const collateralVerified = (c: CollateralItem) => c.ownershipVerified && c.pledgeVerified
 
 
@@ -544,7 +560,7 @@ function ApplicationSummary({
       case 'collateral':
         return v.collaterals.map((c, i) => [
           `Asset ${i + 1}`,
-          c.type ? `${c.type}${c.value !== '' ? ` · ${formatTzs(c.value)}` : ''}${collateralVerified(c) ? ' · verified' : ''}` : '—',
+          c.type ? `${assetType(c) || c.type}${c.value !== '' ? ` · ${formatTzs(c.value)}` : ''}${collateralVerified(c) ? ' · verified' : ''}` : '—',
         ])
       case 'credit':
         return [
@@ -680,7 +696,9 @@ function validate(step: StepId, v: FormValues): Errors {
   return e
 }
 
-function validateGuarantors(list: GuarantorItem[]): ItemErrors {
+// requireVerified: Save & continue needs every guarantor confirmed by OTP; saving a draft does not,
+// because a guarantor may take up to a day to answer
+function validateGuarantors(list: GuarantorItem[], requireVerified = false): ItemErrors {
   const out: ItemErrors = {}
   const seen = new Set<string>()
 
@@ -690,16 +708,24 @@ function validateGuarantors(list: GuarantorItem[]): ItemErrors {
     // relationship is optional: the guarantor table has no column for it yet, so it cannot be restored
     if (!g.address.trim()) e.address = 'Enter the guarantor address'
     if (!g.locationName.trim()) e.locationName = 'Enter the location name'
-    if (!g.locationPin.trim()) e.locationPin = 'Enter the location pin'
+    // location pin is optional
     if (!g.phone.trim()) e.phone = 'Enter a phone number'
     else if (!PHONE.test(g.phone.trim())) e.phone = 'Enter 10 digits starting with 0'
     if (!g.email.trim()) e.email = 'Enter an email address'
     else if (!EMAIL.test(g.email.trim())) e.email = 'Enter a valid email address'
 
-    const nida = g.idNumber.trim().toUpperCase()
+    // compared by digits only, so "1990..." and "1990-..." count as the same number
+    const nida = g.idNumber.replace(/\D/g, '')
     if (!nida) e.idNumber = 'Enter the guarantor NIDA number'
+    else if (nida.length !== NIDA_DIGITS)
+      e.idNumber = `The NIDA number must have ${NIDA_DIGITS} digits (${nidaDigitCount(g.idNumber)} entered)`
     else if (seen.has(nida)) e.idNumber = 'Another guarantor already has this NIDA number'
     else seen.add(nida)
+
+    if (requireVerified && !g.otpVerified) {
+      if (!g.exposureChecked) e.exposure = "Tick this once the guarantor's debts and guarantees are checked"
+      e.otp = 'Verify this guarantor with the code sent to their email before continuing'
+    }
 
     if (Object.keys(e).length > 0) out[g.uid] = e
   })
@@ -713,7 +739,8 @@ function validateCollaterals(list: CollateralItem[]): ItemErrors {
   list.forEach((c) => {
     const e: Record<string, string> = {}
     if (!c.type) e.type = 'Select the collateral type'
-    if (!c.description.trim()) e.description = 'Describe the collateral'
+    else if (c.type === 'Other' && !c.otherType.trim()) e.type = 'Type the exact asset, e.g. Livestock'
+    // description is optional
     if (c.value === '' || c.value <= 0) e.value = 'Value must be greater than zero'
     // the document, its number and the remarks are optional: the API cannot receive files yet
 
@@ -772,96 +799,191 @@ type CardShellProps = {
   children: React.ReactNode
 }
 
-/* ---------- guarantor consent by email code (screen only until the backend has an endpoint) ---------- */
+/* ---------- guarantor verification by email code (required) ---------- */
 
-// same rules as the other codes in the API: expires in 5 minutes, a new one after 60 seconds
-const OTP_EXPIRY_SECONDS = 5 * 60
+// the API's rules: a code lasts 24 hours, a new one can be sent 60 seconds after the last
+const OTP_VALID_MS = 24 * 60 * 60 * 1000
 const OTP_RESEND_SECONDS = 60
-const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+// the moment a code was sent; read in event handlers only, never while rendering
+const timeNow = () => Date.now()
 
-function GuarantorOtp({ email }: { email: string }) {
-  const [sentAt, setSentAt] = useState<number | null>(null)
+// When a code was sent is remembered in this browser per saved guarantor, so leaving the page and coming back
+// keeps "Code sent", the resend wait and the "valid until" time. The API cannot tell us (otp_verification is
+// Admin-only). Storage can be unavailable (private mode), so every read and write is guarded
+const otpSentKey = (guarantorId: number) => `fundora.guarantorOtpSentAt.${guarantorId}`
+
+function rememberOtpSent(guarantorId: number, at: number) {
+  try {
+    window.localStorage.setItem(otpSentKey(guarantorId), String(at))
+  } catch {
+    // not remembered; the card simply shows "Send code" after a reload
+  }
+}
+
+function forgetOtpSent(guarantorId: number) {
+  try {
+    window.localStorage.removeItem(otpSentKey(guarantorId))
+  } catch {
+    // nothing to clean up
+  }
+}
+
+// the remembered send time, or null when there is none or the code has run out (older than 24 hours)
+function recalledOtpSent(guarantorId: number): number | null {
+  try {
+    const at = Number(window.localStorage.getItem(otpSentKey(guarantorId)))
+    if (!at) return null
+    if (Date.now() - at > OTP_VALID_MS) {
+      forgetOtpSent(guarantorId)
+      return null
+    }
+    return at
+  } catch {
+    return null
+  }
+}
+const mmss =(s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+type GuarantorVerificationProps = {
+  item: GuarantorItem
+  errors?: Record<string, string>
+  onChange: (patch: Partial<GuarantorItem>) => void
+  /** saves the card if needed, then POST .../otp/send */
+  onSend: () => Promise<void>
+  /** POST .../otp/verify with the code the guarantor read out */
+  onVerify: (code: string) => Promise<void>
+}
+
+function GuarantorVerification({ item, errors, onChange, onSend, onVerify }: GuarantorVerificationProps) {
   const [now, setNow] = useState(() => Date.now())
   const [code, setCode] = useState('')
+  const [busy, setBusy] = useState<'send' | 'verify' | null>(null)
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
 
-  // ticks every second while a code is out
+  // ticks every second during the 60 second resend wait
+  const sentAt = item.otpSentAt
   useEffect(() => {
-    if (sentAt === null) return
+    if (sentAt === null || item.otpVerified) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [sentAt])
+  }, [sentAt, item.otpVerified])
 
-  const send = () => {
-    const t = Date.now()
-    setSentAt(t)
-    setNow(t)
-    setCode('')
+  const resendIn = sentAt === null ? 0 : Math.max(0, OTP_RESEND_SECONDS - Math.floor((now - sentAt) / 1000))
+  const emailOk = EMAIL.test(item.email.trim())
+  // a saved guarantor may still have a code from earlier (it lasts 24 hours), so the box opens once it is saved
+  const canEnterCode = item.serverId !== null || sentAt !== null
+
+  const act = async (kind: 'send' | 'verify') => {
+    if (busy) return
+    setBusy(kind)
+    setMessage(null)
+    try {
+      if (kind === 'send') {
+        await onSend()
+        setCode('')
+        setNow(Date.now())
+        setMessage({ text: `Code sent to ${item.email.trim()}.`, ok: true })
+      } else {
+        await onVerify(code)
+        setMessage(null)
+      }
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : 'Something went wrong. Please try again.', ok: false })
+    } finally {
+      setBusy(null)
+    }
   }
 
-  const elapsed = sentAt === null ? 0 : Math.floor((now - sentAt) / 1000)
-  const expiresIn = Math.max(0, OTP_EXPIRY_SECONDS - elapsed)
-  const resendIn = Math.max(0, OTP_RESEND_SECONDS - elapsed)
-  const emailOk = EMAIL.test(email.trim())
+  if (item.otpVerified) {
+    return (
+      <Alert color="brand" variant="light" icon={<AppIcon name="circle-check" />} title="Verified by email code">
+        <Text size="xs">
+          The guarantor confirmed with the code sent to {item.email.trim() || 'their email'}, and their existing debts
+          and guarantees were checked. Their details are locked.
+        </Text>
+      </Alert>
+    )
+  }
 
   return (
-    <div className="space-y-2 rounded-md bg-gray-50 px-3 py-2.5">
+    <div className={`space-y-2 rounded-md px-3 py-2.5 ${errors?.otp ? 'bg-red-50' : 'bg-gray-50'}`}>
       <Group justify="space-between" gap="xs">
         <Text size="sm" fw={600}>
-          Guarantor consent (optional)
+          Guarantor verification
         </Text>
-        <Badge size="xs" variant="light" color="gray">
-          Preview, no email is sent yet
+        <Badge size="xs" variant="light" color={sentAt !== null ? 'yellow' : 'gray'}>
+          {sentAt !== null ? 'Code sent' : 'Not sent'}
         </Badge>
       </Group>
       <Text size="xs" c="dimmed">
-        The guarantor agrees to back this loan by entering the code emailed to them.
+        The guarantor confirms by reading back the 6-digit code emailed to them. It stays valid for 24 hours.
       </Text>
 
-      <Stack gap={6}>
-        <Group gap="xs" align="flex-end">
-          {/* always shown; it opens once a code has been sent */}
-          <TextInput
-            label="6-digit code"
-            placeholder="000000"
-            size="sm"
-            w={200}
-            maxLength={6}
-            inputMode="numeric"
-            disabled={sentAt === null}
-            styles={{ input: { letterSpacing: 6, textAlign: 'center' } }}
-            value={code}
-            onChange={(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))}
-          />
-          {sentAt === null ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="light"
-              color="brand"
-              leftSection={<AppIcon name="mail" />}
-              disabled={!emailOk}
-              onClick={send}
-            >
-              Send code
-            </Button>
-          ) : (
-            <Button type="button" size="sm" variant="subtle" color="gray" disabled={resendIn > 0} onClick={send}>
-              {resendIn > 0 ? `Resend code in ${mmss(resendIn)}` : 'Resend code'}
-            </Button>
-          )}
-        </Group>
-        {sentAt === null ? (
-          <Text size="xs" c="dimmed">
-            {emailOk ? 'Send a code to the guarantor email to unlock this box.' : 'Enter the guarantor email above to send a code.'}
-          </Text>
-        ) : (
-          <Text size="xs" c={expiresIn === 0 ? 'red' : 'dimmed'}>
-            {expiresIn === 0
-              ? 'Code expired, send a new one.'
-              : `Code sent to ${email.trim()}. Expires in ${mmss(expiresIn)}`}
-          </Text>
-        )}
-      </Stack>
+      <Checkbox
+        label="I checked this guarantor's existing debts and guarantees"
+        checked={item.exposureChecked}
+        onChange={(e) => onChange({ exposureChecked: e.currentTarget.checked })}
+        error={errors?.exposure}
+      />
+
+      <Group gap="xs" align="flex-end">
+        <TextInput
+          label="6-digit code"
+          placeholder="000000"
+          size="sm"
+          w={170}
+          maxLength={6}
+          inputMode="numeric"
+          disabled={!canEnterCode || busy !== null}
+          styles={{ input: { letterSpacing: 6, textAlign: 'center' } }}
+          value={code}
+          onChange={(e) => setCode(e.currentTarget.value.replace(/\D/g, ''))}
+        />
+        <Button
+          type="button"
+          size="sm"
+          leftSection={<AppIcon name="check" />}
+          loading={busy === 'verify'}
+          disabled={code.length !== 6 || !item.exposureChecked || busy === 'send'}
+          onClick={() => void act('verify')}
+        >
+          Verify
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={sentAt === null ? 'light' : 'subtle'}
+          color={sentAt === null ? 'brand' : 'gray'}
+          leftSection={<AppIcon name="mail" />}
+          loading={busy === 'send'}
+          disabled={!emailOk || resendIn > 0 || busy === 'verify'}
+          onClick={() => void act('send')}
+        >
+          {sentAt === null ? 'Send code' : resendIn > 0 ? `Resend in ${mmss(resendIn)}` : 'Resend code'}
+        </Button>
+      </Group>
+
+      <Text size="xs" c={message && !message.ok ? 'red' : 'dimmed'}>
+        {message
+          ? message.text
+          : sentAt !== null
+            ? `Code sent to ${item.email.trim()}, valid until ${dayjs(sentAt + OTP_VALID_MS).format('D MMM, HH:mm')}.`
+            : !emailOk
+              ? 'Enter the guarantor email above to send a code.'
+              : item.serverId !== null
+                ? 'If a code was sent earlier (it lasts 24 hours), enter it, or send a new one.'
+                : 'Send code saves this guarantor and emails them the code.'}
+      </Text>
+      {!item.exposureChecked && code.length === 6 && (
+        <Text size="xs" c="dimmed">
+          Tick the debts and guarantees check above to verify.
+        </Text>
+      )}
+      {errors?.otp && (
+        <Text size="xs" c="red">
+          {errors.otp}
+        </Text>
+      )}
     </div>
   )
 }
@@ -902,9 +1024,13 @@ type GuarantorCardProps = {
   errors?: Record<string, string>
   onChange: (patch: Partial<GuarantorItem>) => void
   onRemove?: () => void
+  onSend: () => Promise<void>
+  onVerify: (code: string) => Promise<void>
 }
 
-function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCardProps) {
+function GuarantorCard({ item, index, errors, onChange, onRemove, onSend, onVerify }: GuarantorCardProps) {
+  // once the guarantor confirmed by code, who they are can no longer change
+  const locked = item.otpVerified
   return (
     <CardShell title={`Guarantor ${index + 1}`} verified={guarantorVerified(item)} onRemove={onRemove}>
       <Stack gap="md">
@@ -913,33 +1039,48 @@ function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCar
             label="Full name"
             placeholder="Joseph Massawe"
             size="sm"
+            readOnly={locked}
             value={item.name}
             onChange={(e) => onChange({ name: e.currentTarget.value })}
             error={errors?.name}
           />
           <TextInput
             label="NIDA number"
-            placeholder="NIDA123"
+            placeholder="YYYYMMDD-XXXXX-XXXXX-XX"
+            inputMode="numeric"
             size="sm"
+            readOnly={locked}
             value={item.idNumber}
-            onChange={(e) => onChange({ idNumber: e.currentTarget.value })}
+            // digits only, at most 20, with the hyphens added as you type (same as applicant registration)
+            onChange={(e) => onChange({ idNumber: formatNida(e.currentTarget.value) })}
             error={errors?.idNumber}
           />
           <TextInput
             label="Phone"
-            placeholder="0713222111"
+            placeholder="0700000000"
             size="sm"
             maxLength={10}
-            inputMode="tel"
+            inputMode="numeric"
+            readOnly={locked}
             value={item.phone}
-            onChange={(e) => onChange({ phone: e.currentTarget.value })}
-            error={errors?.phone}
+            // digits only, at most 10
+            onChange={(e) => onChange({ phone: e.currentTarget.value.replace(/\D/g, '').slice(0, 10) })}
+            error={
+              errors?.phone ??
+              // once something is typed, say how many digits are still missing
+              (item.phone && !PHONE.test(item.phone)
+                ? item.phone.startsWith('0')
+                  ? `Enter 10 digits (${item.phone.length} entered)`
+                  : 'The phone number must start with 0'
+                : undefined)
+            }
           />
           <TextInput
             label="Email"
             placeholder="joseph@example.com"
             size="sm"
             type="email"
+            readOnly={locked}
             value={item.email}
             onChange={(e) => onChange({ email: e.currentTarget.value })}
             error={errors?.email}
@@ -967,7 +1108,7 @@ function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCar
 
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
           <TextInput
-            label="Location pin"
+            label="Location pin (optional)"
             placeholder="TZ-DOM-001"
             size="sm"
             value={item.locationPin}
@@ -987,27 +1128,7 @@ function GuarantorCard({ item, index, errors, onChange, onRemove }: GuarantorCar
           />
         </SimpleGrid>
 
-        <GuarantorOtp email={item.email} />
-
-        <div className="space-y-2 rounded-md bg-gray-50 px-3 py-2.5">
-          <Text size="sm" fw={600}>
-            Verification
-          </Text>
-          <Text size="xs" c="dimmed">
-            Both must be ticked before the credit assessment can run.
-          </Text>
-          <Checkbox
-            label="ID verified"
-            checked={item.idVerified}
-            onChange={(e) => onChange({ idVerified: e.currentTarget.checked })}
-          />
-          <Checkbox
-            label="Exposure verified"
-            description="Existing guarantees and debts have been checked"
-            checked={item.exposureVerified}
-            onChange={(e) => onChange({ exposureVerified: e.currentTarget.checked })}
-          />
-        </div>
+        <GuarantorVerification item={item} errors={errors} onChange={onChange} onSend={onSend} onVerify={onVerify} />
       </Stack>
     </CardShell>
   )
@@ -1028,16 +1149,34 @@ function CollateralCard({ item, index, errors, onChange, onRemove }: CollateralC
     <CardShell title={`Asset ${index + 1}`} verified={collateralVerified(item)} onRemove={onRemove}>
       <Stack gap="md">
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          <Select
-            label="Collateral type"
-            placeholder="Select type"
-            size="sm"
-            data={COLLATERAL_TYPES}
-            allowDeselect={false}
-            value={item.type || null}
-            onChange={(v) => onChange({ type: v ?? '' })}
-            error={errors?.type}
-          />
+          {item.type === 'Other' ? (
+            // 'Other' turns the list into a text box for the exact asset; the x goes back to the list
+            <TextInput
+              label="Collateral type"
+              placeholder="Type the asset, e.g. Livestock"
+              size="sm"
+              autoFocus
+              value={item.otherType}
+              onChange={(e) => onChange({ otherType: e.currentTarget.value })}
+              error={errors?.type}
+              rightSection={
+                <Tooltip label="Back to the list" withArrow>
+                  <CloseButton size="sm" aria-label="Back to the list" onClick={() => onChange({ type: '', otherType: '' })} />
+                </Tooltip>
+              }
+            />
+          ) : (
+            <Select
+              label="Collateral type"
+              placeholder="Select type"
+              size="sm"
+              data={COLLATERAL_TYPES}
+              allowDeselect={false}
+              value={item.type || null}
+              onChange={(v) => onChange({ type: v ?? '' })}
+              error={errors?.type}
+            />
+          )}
           <NumberInput
             label="Estimated value"
             placeholder="7,500,000"
@@ -1053,7 +1192,7 @@ function CollateralCard({ item, index, errors, onChange, onRemove }: CollateralC
         </SimpleGrid>
 
         <TextInput
-          label="Description"
+          label="Description (optional)"
           placeholder="Plot 214, Kinondoni, with title deed"
           size="sm"
           value={item.description}
@@ -1452,8 +1591,15 @@ export function NewLoanApplicationPage() {
     enabled: restoreItemsFor !== null,
     staleTime: 0,
   })
-  const restoringItems = restoreItemsFor !== null && (savedGuarantorsQuery.isLoading || savedCollateralsQuery.isLoading)
+  // a copy remembered from an earlier visit may predate cards saved since (e.g. by Send code), so the cards
+  // are only restored from a fresh read made after the wizard opened
+  const freshItems =
+    savedGuarantorsQuery.isFetchedAfterMount &&
+    savedCollateralsQuery.isFetchedAfterMount &&
+    !savedGuarantorsQuery.isFetching &&
+    !savedCollateralsQuery.isFetching
   const restoreError = restoreItemsFor !== null ? (savedGuarantorsQuery.error ?? savedCollateralsQuery.error) : null
+  const restoringItems = restoreItemsFor !== null && !freshItems && !restoreError
   // saving before the saved cards are in would send the blank cards as new records
   const cardsNotReady = (current === 'guarantor' || current === 'collateral') && (restoringItems || !!restoreError)
 
@@ -1462,6 +1608,7 @@ export function NewLoanApplicationPage() {
   if (
     restoreItemsFor !== null &&
     itemsRestoredFor !== restoreItemsFor &&
+    freshItems &&
     savedGuarantorsQuery.isSuccess &&
     savedCollateralsQuery.isSuccess
   ) {
@@ -1486,8 +1633,8 @@ export function NewLoanApplicationPage() {
     [g.name, g.phone, g.idNumber, g.address, g.email, g.locationName, g.locationPin, g.relationship].some(
       (x) => x.trim() !== '',
     ) ||
-    g.idVerified ||
-    g.exposureVerified
+    g.otpVerified ||
+    g.exposureChecked
   const collateralHasData = (c: CollateralItem) =>
     c.serverId !== null ||
     !!c.type ||
@@ -1556,53 +1703,81 @@ export function NewLoanApplicationPage() {
 
   /* ---------- saving guarantors and assets ---------- */
 
-  // POST/PUT each changed guarantor, DELETE the removed ones, then verify the ones whose ticks changed.
-  // A failed verify does not stop the save, it comes back as a warning.
+  // POST/PUT one guarantor card (only when new or changed); answers its id on the server
+  const saveGuarantorCard = async (applicationId: number, g: GuarantorItem): Promise<{ serverId: number; sig: string }> => {
+    const sig = sigOfGuarantor(g)
+    if (g.serverId !== null && sig === g.savedSig) return { serverId: g.serverId, sig }
+    const serverId = await saveGuarantor(applicationId, g.serverId, {
+      fullName: g.name.trim(),
+      phone: g.phone.trim(),
+      idNumber: g.idNumber.trim(),
+      address: g.address.trim(),
+      email: g.email.trim(),
+      locationName: g.locationName.trim(),
+      locationPin: g.locationPin.trim(),
+    })
+    return { serverId, sig }
+  }
+
+  // POST/PUT each changed guarantor and DELETE (deactivate) the removed ones. Verification is not part of
+  // saving any more: each guarantor confirms by email code on their card
   const syncGuarantors = async (applicationId: number): Promise<string[]> => {
-    const warnings: string[] = []
     for (const id of removedGuarantorIds) await deleteGuarantor(id)
     setRemovedGuarantorIds([])
 
-    const saved: GuarantorItem[] = []
-    for (const g of values.guarantors) {
-      const sig = sigOfGuarantor(g)
-      const serverId =
-        g.serverId === null || sig !== g.savedSig
-          ? await saveGuarantor(applicationId, g.serverId, {
-              fullName: g.name.trim(),
-              phone: g.phone.trim(),
-              idNumber: g.idNumber.trim(),
-              address: g.address.trim(),
-              email: g.email.trim(),
-              locationName: g.locationName.trim(),
-              locationPin: g.locationPin.trim(),
-            })
-          : g.serverId
-      let checkSig = g.savedCheckSig
-      if (checkSigOfGuarantor(g) !== g.savedCheckSig && me) {
-        try {
-          await verifyGuarantor(applicationId, serverId, {
-            idVerified: g.idVerified,
-            exposureVerified: g.exposureVerified,
-            verifiedBy: me.id,
-            remarks: '',
-          })
-          checkSig = checkSigOfGuarantor(g)
-        } catch (err) {
-          warnings.push(`${g.name.trim() || 'A guarantor'}: ${err instanceof Error ? err.message : 'verification failed'}`)
-        }
-      }
-      saved.push({ ...g, serverId, savedSig: sig, savedCheckSig: checkSig })
-    }
+    const saved = new Map<number, { serverId: number; sig: string }>()
+    for (const g of values.guarantors) saved.set(g.uid, await saveGuarantorCard(applicationId, g))
     // keep anything typed while saving, only the server ids and saved markers change
     setValues((prev) => ({
       ...prev,
       guarantors: prev.guarantors.map((g) => {
-        const s = saved.find((x) => x.uid === g.uid)
-        return s ? { ...g, serverId: s.serverId, savedSig: s.savedSig, savedCheckSig: s.savedCheckSig } : g
+        const s = saved.get(g.uid)
+        return s ? { ...g, serverId: s.serverId, savedSig: s.sig } : g
       }),
     }))
-    return warnings
+    return []
+  }
+
+  // Send code on a card: the card must be complete, it is saved first (the code goes to the saved email),
+  // then POST .../otp/send. An error is thrown back to the card and shown there
+  const sendGuarantorCode = async (uid: number) => {
+    const g = values.guarantors.find((x) => x.uid === uid)
+    if (!g) return
+    const found = validateGuarantors(values.guarantors)[uid]
+    if (found) {
+      setGuarantorErrors((prev) => ({ ...prev, [uid]: found }))
+      throw new Error('Complete this guarantor’s details first.')
+    }
+    const applicationId = await ensureDraft()
+    const { serverId, sig } = await saveGuarantorCard(applicationId, g)
+    updateGuarantor(uid, { serverId, savedSig: sig })
+    await sendGuarantorOtp(applicationId, serverId)
+    const sentAt = timeNow()
+    rememberOtpSent(serverId, sentAt)
+    updateGuarantor(uid, { otpSentAt: sentAt })
+  }
+
+  // Verify on a card: POST .../otp/verify; success marks the guarantor VERIFIED on the server
+  const verifyGuarantorCode = async (uid: number, code: string) => {
+    const g = values.guarantors.find((x) => x.uid === uid)
+    if (!g) return
+    if (!me) throw new Error('Your user could not be read. Log out and back in, then try again.')
+    if (!g.exposureChecked) throw new Error("Tick the debts and guarantees check first.")
+    if (g.serverId === null || draftId === null) throw new Error('Send a code to this guarantor first.')
+    // the code went to the details that were saved; edited details need a new code
+    if (sigOfGuarantor(g) !== g.savedSig) throw new Error('The details changed after the code was sent. Send a new code.')
+    await verifyGuarantorOtp(draftId, g.serverId, {
+      code,
+      verifiedBy: me.id,
+      remarks: `Verified via email OTP sent to ${g.email.trim()}. The officer checked the guarantor's existing debts and guarantees.`,
+    })
+    forgetOtpSent(g.serverId)
+    updateGuarantor(uid, { otpVerified: true })
+    setGuarantorErrors((prev) => {
+      const next = { ...prev }
+      delete next[uid]
+      return next
+    })
   }
 
   // the same for assets, plus each asset's document record (the file itself cannot be sent yet)
@@ -1617,7 +1792,7 @@ export function NewLoanApplicationPage() {
       const serverId =
         c.serverId === null || sig !== c.savedSig
           ? await saveCollateral(applicationId, c.serverId, {
-              collateralType: c.type,
+              collateralType: assetType(c),
               description: c.description.trim(),
               estimatedValue: c.value === '' ? 0 : c.value,
             })
@@ -1652,7 +1827,7 @@ export function NewLoanApplicationPage() {
           })
           checkSig = checkSigOfCollateral(c)
         } catch (err) {
-          warnings.push(`${c.type || 'An asset'}: ${err instanceof Error ? err.message : 'verification failed'}`)
+          warnings.push(`${assetType(c) || 'An asset'}: ${err instanceof Error ? err.message : 'verification failed'}`)
         }
       }
       saved.push({
@@ -1771,7 +1946,8 @@ export function NewLoanApplicationPage() {
     if (cardsNotReady) return
 
     if (current === 'guarantor') {
-      const found = validateGuarantors(values.guarantors)
+      // every guarantor must be confirmed by email code before the form moves on
+      const found = validateGuarantors(values.guarantors, true)
       setGuarantorErrors(found)
       if (Object.keys(found).length > 0) return
     } else if (current === 'collateral') {
@@ -1803,14 +1979,35 @@ export function NewLoanApplicationPage() {
         // 3. the credit assessment: APPROVE -> CREDIT_APPROVED, REJECT -> REJECTED
         const credit = await assessCredit(id)
         setCreditOutcome(credit)
-        setOutcome(
+        const result =
           credit.result?.decision === 'REJECT'
             ? 'REJECTED'
             : credit.result?.decision === 'APPROVE' || (credit.result && !values.creditAssessmentRequired)
               ? 'CREDIT_APPROVED'
-              : 'SUBMITTED',
-        )
+              : 'SUBMITTED'
+        setOutcome(result)
         setSubmitted(true)
+
+        // top-right toast; the page below still shows the full outcome
+        const no = done.applicationNo || applicationNo || 'The application'
+        notifications.show(
+          result === 'REJECTED'
+            ? {
+                color: 'red',
+                title: 'Application submitted, credit check failed',
+                message: `${no} was submitted but rejected by the credit assessment.`,
+                icon: <AppIcon name="circle-x" size={16} />,
+              }
+            : {
+                color: 'brand',
+                title: 'Application submitted',
+                message:
+                  result === 'CREDIT_APPROVED'
+                    ? `${no} passed the credit assessment and is waiting for approval.`
+                    : `${no} was submitted successfully.`,
+                icon: <AppIcon name="check" size={16} />,
+              },
+        )
       })
       return
     }
@@ -2270,6 +2467,8 @@ export function NewLoanApplicationPage() {
                   errors={guarantorErrors[g.uid]}
                   onChange={(patch) => updateGuarantor(g.uid, patch)}
                   onRemove={values.guarantors.length > MIN_GUARANTORS ? () => removeGuarantor(g.uid) : undefined}
+                  onSend={() => sendGuarantorCode(g.uid)}
+                  onVerify={(code) => verifyGuarantorCode(g.uid, code)}
                 />
               ))}
 
@@ -2578,7 +2777,7 @@ export function NewLoanApplicationPage() {
                         <Field label="Relationship" value={g.relationship} />
                         <Field
                           label="Verification"
-                          value={guarantorVerified(g) ? 'ID and exposure verified' : 'Not fully verified'}
+                          value={guarantorVerified(g) ? 'Verified by email code' : 'Not verified'}
                         />
                       </div>
                     ))}
@@ -2587,8 +2786,8 @@ export function NewLoanApplicationPage() {
                     values.collaterals.map((c, i) => (
                       <div key={c.uid}>
                         <SectionTitle>{`Asset ${i + 1}`}</SectionTitle>
-                        <Field label="Type" value={c.type} />
-                        <Field label="Description" value={c.description} />
+                        <Field label="Type" value={assetType(c)} />
+                        <Field label="Description" value={c.description || '—'} />
                         <Field
                           label="Estimated value"
                           value={c.value === '' ? '' : formatTzs(c.value)}
@@ -2696,7 +2895,7 @@ export function NewLoanApplicationPage() {
                 </Alert>
               )}
               <Group gap="xs">
-                <Button type="button" variant="default" onClick={goBack}>
+                <Button type="button" variant="default" leftSection={<AppIcon name="arrow-left" />} onClick={goBack}>
                   Back to applications
                 </Button>
                 <Button type="button" color="brand" onClick={startOver}>

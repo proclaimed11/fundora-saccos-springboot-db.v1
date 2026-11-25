@@ -638,11 +638,9 @@ export function FinancialTab({ applicant }: { applicant: Applicant }) {
 
           {profile ? (
             <>
-              <Field label="Employment type" value={profile.employmentType || '-'} />
-              <Field label="Employer" value={profile.employer || '—'} />
               <Field label="Monthly income" value={formatTzs(profile.monthlyIncome)} />
               <Field label="Monthly expenses" value={formatTzs(profile.monthlyExpenses)} />
-              {/* dependants are not shown: the financial_profile table has no column for them yet */}
+              {/* employment type, employer and dependants are not shown: the financial_profile table has no columns for them */}
             </>
           ) : (
             <div className="rounded-md border border-dashed border-gray-200 px-4 py-5 text-center text-xs text-gray-500">

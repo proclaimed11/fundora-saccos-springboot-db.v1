@@ -2,6 +2,7 @@ import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import dayjs from 'dayjs'
+import { notifications } from '@mantine/notifications'
 import { Alert, Badge, Button, Tabs, Text, Tooltip } from '@mantine/core'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { CustomTabs } from '../../components/customTabs'
@@ -155,7 +156,12 @@ export function ApplicantProfile() {
           isReturning: input.isReturning,
         },
       })
-      setNotice(`${input.name}'s details were updated.`)
+      notifications.show({
+        color: 'brand',
+        title: 'Details updated',
+        message: `${input.name}'s details were saved.`,
+        icon: <AppIcon name="check" size={16} />,
+      })
       setEditOpen(false)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : 'Could not save the changes. Please try again.')
@@ -359,13 +365,8 @@ export function ApplicantProfile() {
         </div>
       </div>
 
-      <KycDecisionDialog
-        applicant={reviewOpen ? applicant : null}
-        onClose={() => setReviewOpen(false)}
-        onDecided={(a, decision) =>
-          setNotice(`${a.name}'s KYC was ${decision === 'APPROVED' ? 'approved' : 'rejected'}.`)
-        }
-      />
+      {/* the dialog shows the "KYC approved / rejected" notification itself */}
+      <KycDecisionDialog applicant={reviewOpen ? applicant : null} onClose={() => setReviewOpen(false)} />
 
       <RecheckKycDialog applicant={recheckOpen ? applicant : null} onClose={() => setRecheckOpen(false)} />
 
@@ -398,6 +399,7 @@ export function ApplicantProfile() {
           `Delete ${applicant.name} (${applicant.applicantNo})? This action cannot be undone.`
         }
         confirmLabel={deleteError ? 'Try again' : 'Delete profile'}
+        danger={!deleteError}
         onClose={() => {
           setDeleteOpen(false)
           setDeleteError(null)

@@ -185,7 +185,15 @@ export const useLoanDrafts = () =>
 
 /* ---------- DELETE /api/loan-applications/{id} (raw CRUD): discard a draft ---------- */
 
+// its guarantors (soft delete) and collateral with their documents go first, so nothing is left behind
+// pointing at an application that no longer exists
 export async function deleteLoanApplication(id: number) {
+  const [guarantors, collaterals] = await Promise.all([getDraftGuarantors(id), getDraftCollaterals(id)])
+  for (const g of guarantors) await deleteGuarantor(g.id)
+  for (const c of collaterals) {
+    if (c.documentId !== null) await api<unknown>(`/api/collateral-documents/${c.documentId}`, { method: 'DELETE' })
+    await deleteCollateral(c.id)
+  }
   await api(`/api/loan-applications/${id}`, { method: 'DELETE' })
   void refresh()
 }
@@ -227,6 +235,9 @@ const guarantorRowSchema = z.object({
   locationName: z.string().nullish(),
   locationPin: z.string().nullish(),
   status: z.string().nullish(),
+  // DELETE /api/guarantors/{id} only switches this off (soft delete); such rows are treated as removed
+  isActive: z.boolean().nullish(),
+  active: z.boolean().nullish(),
 })
 
 const guarantorCheckSchema = z.object({
@@ -275,6 +286,7 @@ export type SavedGuarantor = {
   email: string
   locationName: string
   locationPin: string
+  /** the guarantor is VERIFIED (today by email OTP); both flags carry the same answer */
   idVerified: boolean
   exposureVerified: boolean
 }
@@ -301,20 +313,24 @@ const latestBy = <T extends { id: number }>(rows: T[], owner: (r: T) => number) 
   return out
 }
 
-// GET /api/guarantors (+ /api/guarantor-verifications for the ticks), this application's rows
+// GET /api/guarantors, this application's active rows. A guarantor counts as verified when its status is
+// VERIFIED (set by the email OTP, or by an older manual check with both boxes ticked)
 export async function getDraftGuarantors(applicationId: number): Promise<SavedGuarantor[]> {
   const [rows, checks] = await Promise.all([
     api('/api/guarantors', { schema: listOf(guarantorRowSchema) }),
-    // the ticks are optional: a failed read keeps the guarantors and shows them unticked
+    // older manual checks; a failed read just leaves them out
     api('/api/guarantor-verifications', { schema: listOf(guarantorCheckSchema) }).catch(() => []),
   ])
   const last = latestBy(rowsOf(checks), (c) => c.guarantorId ?? c.guarantor?.id ?? 0)
   return rowsOf(rows)
     .filter((g) => (g.applicationId ?? g.application?.id) === applicationId)
+    // removed guarantors stay in the table as inactive rows: they are not shown or counted
+    .filter((g) => (g.isActive ?? g.active) !== false)
     .sort((a, b) => a.id - b.id)
     .map((g) => {
       const check = last.get(g.id)
-      const verified = (g.status ?? '').toUpperCase() === 'VERIFIED'
+      const verified =
+        (g.status ?? '').toUpperCase() === 'VERIFIED' || (!!check?.idVerified && !!check?.exposureVerified)
       return {
         id: g.id,
         fullName: g.fullName ?? '',
@@ -324,8 +340,8 @@ export async function getDraftGuarantors(applicationId: number): Promise<SavedGu
         email: g.email ?? '',
         locationName: g.locationName ?? '',
         locationPin: g.locationPin ?? '',
-        idVerified: check?.idVerified ?? verified,
-        exposureVerified: check?.exposureVerified ?? verified,
+        idVerified: verified,
+        exposureVerified: verified,
       }
     })
 }
@@ -384,15 +400,23 @@ export async function saveGuarantor(applicationId: number, id: number | null, f:
   return savedId(await api<unknown>('/api/guarantors', { method: 'POST', body: changes }))
 }
 
+// a soft delete: the row stays with is_active = false and is hidden everywhere
 export const deleteGuarantor = (id: number) => api<unknown>(`/api/guarantors/${id}`, { method: 'DELETE' })
 
-// POST /api/loan-origination/applications/{applicationId}/guarantors/{guarantorId}/verify
-export const verifyGuarantor = (
+// POST .../guarantors/{guarantorId}/otp/send: emails a 6-digit code to the guarantor's saved email.
+// Valid 24 hours, single use, 5 attempts, a new one only after 60 seconds
+export const sendGuarantorOtp = (applicationId: number, guarantorId: number) =>
+  api<unknown>(`/api/loan-origination/applications/${applicationId}/guarantors/${guarantorId}/otp/send`, {
+    method: 'POST',
+  })
+
+// POST .../guarantors/{guarantorId}/otp/verify: the code the guarantor received; success marks them VERIFIED
+export const verifyGuarantorOtp = (
   applicationId: number,
   guarantorId: number,
-  body: { idVerified: boolean; exposureVerified: boolean; verifiedBy: number; remarks: string },
+  body: { code: string; verifiedBy: number; remarks: string },
 ) =>
-  api<unknown>(`/api/loan-origination/applications/${applicationId}/guarantors/${guarantorId}/verify`, {
+  api<unknown>(`/api/loan-origination/applications/${applicationId}/guarantors/${guarantorId}/otp/verify`, {
     method: 'POST',
     body,
   })

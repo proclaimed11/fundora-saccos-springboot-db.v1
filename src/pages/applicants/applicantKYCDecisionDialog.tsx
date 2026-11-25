@@ -13,6 +13,7 @@ import {
 import { useApplicantDocuments } from '../../api/applicantRecords'
 import { useAuth } from '../../auth/authContext'
 import { isImage } from './documentDialogs'
+import { notifications } from '@mantine/notifications'
 
 type FileOnRecord = { key: string; name: string; fileName: string; path: string }
 type ReturningResult = { valid: boolean; message: string; expiresAt: string | null }
@@ -135,6 +136,22 @@ export function KycDecisionDialog({ applicant, onClose, onDecided }: KycDecision
         remarks: remarks.trim(),
         verifiedBy: user.id,
       })
+      // one notification wherever the decision was made (KYC Review, the profile, registration)
+      notifications.show(
+        pending === 'APPROVED'
+          ? {
+              color: 'brand',
+              title: 'KYC approved',
+              message: `${applicant.name} can now apply for a loan.`,
+              icon: <AppIcon name="shield" size={16} />,
+            }
+          : {
+              color: 'red',
+              title: 'KYC rejected',
+              message: `${applicant.name}'s KYC was rejected. The reason is saved with the decision.`,
+              icon: <AppIcon name="circle-x" size={16} />,
+            },
+      )
       onDecided?.(applicant, pending, remarks.trim())
       close()
     } catch (err) {

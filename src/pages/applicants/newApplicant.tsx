@@ -5,7 +5,6 @@ import {
   Alert,
   Badge,
   Button,
-  Checkbox,
   Collapse,
   FileInput,
   Group,
@@ -33,6 +32,13 @@ import {
   verifyOtpRequest,
 } from '../../api/applicants'
 import { AFRICAN_NATIONALITIES } from './africanCountries'
+import { notifications } from '@mantine/notifications'
+
+// the nationality the Identity verification step starts with
+const DEFAULT_NATIONALITY = 'Tanzanian'
+
+// NIDA formatting (YYYYMMDD-XXXXX-XXXXX-XX) is shared with the guarantor form
+import { NIDA_DIGITS, formatNida } from '../../utils/format'
 import { STATUS, registrationStepsDone, type Applicant, type ApplicantStatus } from './applicantsData'
 import { KycDecisionDialog } from './applicantKYCDecisionDialog'
 import { usePageAccess } from '../auth/usePageAccess'
@@ -75,7 +81,8 @@ const emptyValues: FormValues = {
   address: '',
   locationName: '',
   locationPin: '',
-  nationality: '',
+  // most applicants are Tanzanian, so it starts filled in (it can still be changed)
+  nationality: DEFAULT_NATIONALITY,
   occupation: '',
   nidaNumber: '',
   tinNumber: '',
@@ -106,6 +113,8 @@ const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? er
 const pick = (from: FormValues, keys: (keyof FormValues)[]): Partial<FormValues> =>
   Object.fromEntries(keys.map((k) => [k, from[k]]))
 
+const MIN_APPLICANT_AGE = 18
+
 function validate(step: number, v: FormValues): Errors {
   const e: Errors = {}
   const need = (key: StringKey, message: string) => {
@@ -117,6 +126,10 @@ function validate(step: number, v: FormValues): Errors {
     need('lastName', 'Enter the last name')
     need('gender', 'Select a gender')
     need('dateOfBirth', 'Enter the date of birth')
+    // applicants must be adults: 18 or older on today's date (counted to the day, so it moves with the calendar)
+    if (v.dateOfBirth && dayjs(v.dateOfBirth).isAfter(dayjs().subtract(MIN_APPLICANT_AGE, 'year'), 'day')) {
+      e.dateOfBirth = `The applicant must be at least ${MIN_APPLICANT_AGE} years old`
+    }
        if (!v.phone.trim()) e.phone = 'Enter a phone number'
     else if (!PHONE.test(v.phone.trim())) e.phone = 'Phone must be exactly 10 digits'
     if (!v.email.trim()) e.email = 'Enter an email address'
@@ -126,14 +139,16 @@ function validate(step: number, v: FormValues): Errors {
   if (step === 1) {
     need('address', 'Enter the address')
     need('locationName', 'Enter the location name')
-    need('locationPin', 'Enter the location pin')
+    // location pin is optional
   }
 
   if (step === 2) {
     need('nationality', 'Select the nationality')
     need('occupation', 'Enter the occupation')
     if (!v.nidaNumber.trim()) e.nidaNumber = 'Enter the NIDA number'
-    else if (!DIGITS.test(v.nidaNumber.trim())) e.nidaNumber = 'NIDA number must contain digits only'
+    else if (v.nidaNumber.replace(/\D/g, '').length !== NIDA_DIGITS) {
+      e.nidaNumber = `The NIDA number must have ${NIDA_DIGITS} digits (${v.nidaNumber.replace(/\D/g, '').length} entered)`
+    }
     if (v.tinNumber.trim() && !DIGITS.test(v.tinNumber.trim())) e.tinNumber = 'TIN number must contain digits only'
     if (!v.nidaDocument) e.nidaDocument = 'Upload the NIDA document'
     if (!v.idScan) e.idScan = 'Upload the ID scan'
@@ -208,7 +223,7 @@ const fromApplicant = (a: Applicant): FormValues => ({
   address: a.address,
   locationName: a.location,
   locationPin: a.locationPin,
-  nationality: a.nationality,
+  nationality: a.nationality || DEFAULT_NATIONALITY,
   occupation: a.occupation,
 })
 
@@ -258,7 +273,12 @@ function RegistrationSummary({
 
   const filled = (step: number) =>
     step === 2
-      ? STEP_KEYS[2].some((k) => String(v[k]).trim() !== '') || !!v.nidaDocument || !!v.idScan
+      ? // the pre-filled nationality alone does not count as having started the step
+        STEP_KEYS[2].some(
+          (k) => String(v[k]).trim() !== '' && !(k === 'nationality' && v.nationality === DEFAULT_NATIONALITY),
+        ) ||
+        !!v.nidaDocument ||
+        !!v.idScan
       : STEP_KEYS[step].some((k) => k !== 'isReturning' && String(v[k]).trim() !== '')
 
   const stateOf = (step: number): SectionState => (savedSteps > step ? 'saved' : filled(step) ? 'unsaved' : 'empty')
@@ -275,7 +295,6 @@ function RegistrationSummary({
         ['Date of birth', v.dateOfBirth ? dayjs(v.dateOfBirth).format('MMM D, YYYY') : '—'],
         ['Phone', shown(v.phone)],
         ['Email', shown(v.email)],
-        ['Applicant type', v.isReturning ? 'Returning' : 'New'],
       ],
     },
     {
@@ -616,6 +635,12 @@ export function NewApplicantPage() {
       setVerified(true)
       setStatus('PENDING_KYC')
       setSavedSteps(4)
+      notifications.show({
+        color: 'brand',
+        title: 'Code verified',
+        message: 'The applicant is now pending KYC and will appear in KYC review.',
+        icon: <AppIcon name="shield" size={16} />,
+      })
     } catch (err) {
       // for example "Invalid OTP code" or "OTP has expired"
       setCodeError(messageOf(err, 'Could not verify the code. Please try again.'))
@@ -775,6 +800,7 @@ export function NewApplicantPage() {
                 />
                 <DateInput
                   label="Date of birth"
+                  description={`The applicant must be ${MIN_APPLICANT_AGE} or older`}
                   placeholder="Pick a date"
                   size="sm"
                   valueFormat="MMM D, YYYY"
@@ -796,14 +822,16 @@ export function NewApplicantPage() {
                 />
                 <TextInput label="Email" type="email" placeholder="john@example.com" {...text('email')} />
               </SimpleGrid>
-              <div className="rounded-md border border-gray-200 px-3 py-2.5">
-                <Checkbox
-                  label="Returning applicant"
-                  description="Has been through KYC before. A valid record from the last 12 months lets them skip full KYC."
-                  checked={values.isReturning}
-                  onChange={(e) => set('isReturning', e.currentTarget.checked)}
-                />
-              </div>
+              {/* a returning customer keeps their existing record: their KYC is re-checked there, not by registering again */}
+              <Alert color="gray" variant="light" icon={<AppIcon name="refresh-cw" />} title="Registered before?">
+                <Text size="xs">
+                  A returning applicant should not be registered again. Find them on the Applicants page and use
+                  Re-check KYC on their profile: an approved KYC from the last 12 months lets them skip full KYC.
+                </Text>
+                <Button type="button" size="compact-xs" variant="light" mt={8} onClick={() => navigate('/applicants')}>
+                  Search applicants
+                </Button>
+              </Alert>
             </Stack>
           )}
 
@@ -817,7 +845,7 @@ export function NewApplicantPage() {
                   placeholder="Dar es Salaam City Center"
                   {...text('locationName')}
                 />
-                <TextInput label="Location pin" placeholder="TZ-DOM-001" {...text('locationPin')} />
+                <TextInput label="Location pin (optional)" placeholder="TZ-DOM-001" {...text('locationPin')} />
               </SimpleGrid>
             </Stack>
           )}
@@ -848,11 +876,13 @@ export function NewApplicantPage() {
                 <TextInput label="Occupation" placeholder="Software engineer" {...text('occupation')} />
                 <TextInput
                   label="NIDA number"
-                  placeholder="19900101123456789"
+                  description="20 digits, e.g. 19900101-12345-67890-12"
+                  placeholder="YYYYMMDD-XXXXX-XXXXX-XX"
                   inputMode="numeric"
                   size="sm"
                   value={values.nidaNumber}
-                  onChange={(e) => set('nidaNumber', e.currentTarget.value.replace(/\D/g, ''))}
+                  // digits only, at most 20, with the hyphens added as you type
+                  onChange={(e) => set('nidaNumber', formatNida(e.currentTarget.value))}
                   error={errors.nidaNumber}
                 />
                 <TextInput
@@ -978,13 +1008,11 @@ export function NewApplicantPage() {
                 </>
               )}
 
+              {/* "Code verified" is shown as a notification when it happens; the next actions stay here */}
               {verified && (
                 <>
-                  <Alert color="brand" variant="light" title="Code verified" icon={<AppIcon name="shield" />}>
-                    <Text size="sm">The applicant is now pending KYC and will appear in KYC review.</Text>
-                  </Alert>
                   <Group gap="xs">
-                    <Button type="button" variant="default" onClick={goBack}>
+                    <Button type="button" variant="default" leftSection={<AppIcon name="arrow-left" />} onClick={goBack}>
                       Back to applicants
                     </Button>
                     <Button type="button" color="brand" onClick={startOver}>
@@ -1059,9 +1087,10 @@ export function NewApplicantPage() {
           exitError ??
           (applicantId === null
             ? 'Leave without saving? Everything you entered is lost.'
-            : `Exit now? ${applicantNo || 'This applicant'} was partly registered (${STATUS[status].label}) and the saved record will be permanently deleted from the system. Use "Save & exit" instead to keep it and continue later.`)
+            : `${applicantNo || 'This applicant'} will be permanently deleted. To keep it, use "Save & exit".`)
         }
         confirmLabel={exitError ? 'Try again' : applicantId === null ? 'Leave' : 'Delete and exit'}
+        danger={!exitError}
         onClose={() => {
           setCancelOpen(false)
           setExitError(null)

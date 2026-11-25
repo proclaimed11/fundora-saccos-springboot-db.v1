@@ -889,14 +889,19 @@ export function CustomTable<T extends object>({
               Clear selection
             </Button>
             {onDelete && (
-              <Button
-                size="compact-xs"
-                color="red"
-                leftSection={<AppIcon name="trash-2" />}
-                onClick={() => (confirmModal ? setConfirmOpen(true) : runDelete())}
-              >
-                Delete selected ({selectedRecords.length})
-              </Button>
+              <>
+                {/* thin divider so Delete sits apart from Clear selection */}
+                <div aria-hidden className="h-4 w-px bg-gray-300" />
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="red"
+                  leftSection={<AppIcon name="trash-2" size={14} />}
+                  onClick={() => (confirmModal ? setConfirmOpen(true) : runDelete())}
+                >
+                  Delete ({selectedRecords.length})
+                </Button>
+              </>
             )}
           </Group>
         </Group>

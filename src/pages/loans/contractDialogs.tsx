@@ -9,6 +9,8 @@ type ConfirmProps = {
   title: string
   message: string
   confirmLabel: string
+  /** red confirm button, for actions that delete something */
+  danger?: boolean
   onClose: () => void
   onConfirm: () => void
 }
@@ -18,6 +20,7 @@ export function ContractConfirmDialog({
   title,
   message,
   confirmLabel,
+  danger = false,
   onClose,
   onConfirm,
 }: ConfirmProps) {
@@ -29,7 +32,7 @@ export function ContractConfirmDialog({
           <Button size="xs" variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="xs" onClick={onConfirm}>
+          <Button size="xs" color={danger ? 'red' : undefined} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>

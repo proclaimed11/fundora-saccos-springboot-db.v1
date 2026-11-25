@@ -123,7 +123,7 @@ export function DashboardHeader({
       <header className="relative z-30 flex h-12 shrink-0 items-center text-slate-700">
         <div
           className={`relative flex shrink-0 items-center px-3 transition-[width] duration-200 lg:justify-start lg:px-4 ${
-            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-[13.5rem]'
+            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-[12rem]'
           }`}
         >
           <img
@@ -159,7 +159,7 @@ export function DashboardHeader({
             aria-label="Breadcrumb"
             className={`min-w-0 flex-1 overflow-hidden px-2 ${
               collapsed
-                ? 'xl:max-w-[calc(50vw_-_13.5rem)]'
+                ? 'xl:max-w-[calc(50vw_-_12rem)]'
                 : 'xl:max-w-[calc(50vw_-_24rem)]'
             }`}
           >
@@ -181,7 +181,10 @@ export function DashboardHeader({
                         to={crumb.to}
                         className="inline-flex min-w-0 items-center text-slate-600 no-underline transition-colors hover:text-slate-900"
                       >
-                        {i === 0 && <AppIcon name="home" className="mr-1 block shrink-0" size={14} />}
+                        {/* home icon in the theme colour with a thinner line (was the text grey, stroke 2) */}
+                        {i === 0 && (
+                          <AppIcon name="home" className="mr-1 block shrink-0 text-[var(--app-brand)]" size={14} strokeWidth={1.5} />
+                        )}
                         <span className="truncate">{crumb.label}</span>
                       </Link>
                     ) : (
@@ -255,7 +258,7 @@ export function DashboardHeader({
                   <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
                     <AppIcon name="bell" size={18} />
                   </span>
-                  <Text size="sm" fw={500} className="text-slate-700">You’re all caught up</Text>
+                  <Text size="sm" fw={500} className="text-slate-700">Youâ€™re all caught up</Text>
                   <Text size="xs" className="mt-1 text-slate-500">New notifications will appear here.</Text>
                 </div>
               ) : (

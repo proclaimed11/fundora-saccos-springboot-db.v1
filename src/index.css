@@ -3,12 +3,12 @@
 
 html {
   /* every rem size (Mantine and Tailwind) scales from this; was 14.29px, about 5% smaller now */
-  font-size: 14px;
+  font-size: 16px;
 }
 
 @theme {
-  --font-sans: 'Geist Variable', sans-serif;
-  --font-heading: 'Geist Variable', sans-serif;
+  --font-sans: 'Source Sans 3 Variable', sans-serif;
+  --font-heading: 'Source Sans 3 Variable', sans-serif;
 }
 
 @theme inline {
@@ -500,18 +500,23 @@ html {
 /* ---------- stepper: round nodes joined by a line (use className="app-stepper") ---------- */
 
 .app-stepper {
-  --node: 30px;
+  /* the circle size; the line, the label position and the ring all follow it */
+  --node: 34px;
 }
 
+/* each step box is only as wide as its node, so the lines run right up to the circles and the row reads
+   as one piece; the label hangs centred under its node. The row spans the full width like the form below
+   it (first node on the left edge, last on the right); the padding leaves room for the labels */
 .app-stepper .mantine-Stepper-steps {
   align-items: flex-start;
+  padding: 0 0 2.75rem;
 }
 
 .app-stepper .mantine-Stepper-step {
+  position: relative;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-width: 76px;
+  min-width: 0;
   padding: 0;
 }
 
@@ -520,8 +525,26 @@ html {
 }
 
 .app-stepper .mantine-Stepper-stepBody {
+  position: absolute;
+  top: calc(var(--node) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
   margin: 0;
   text-align: center;
+}
+
+/* the first label starts at its node and the last ends at its node, so neither sticks out past the form */
+.app-stepper .mantine-Stepper-step:first-child .mantine-Stepper-stepBody {
+  left: 0;
+  transform: none;
+  text-align: left;
+}
+
+.app-stepper .mantine-Stepper-step:last-child .mantine-Stepper-stepBody {
+  left: auto;
+  right: 0;
+  transform: none;
+  text-align: right;
 }
 
 .app-stepper .mantine-Stepper-stepLabel {
@@ -570,7 +593,8 @@ html {
 /* the line runs through the middle of the nodes, not of node + label */
 .app-stepper .mantine-Stepper-separator {
   height: 2px;
-  margin: calc(var(--node) / 2 + 2px) 0 0;
+  /* -3px each side reaches past the ring padding, so the line touches the circle's edge */
+  margin: calc(var(--node) / 2 + 2px) -3px 0;
   background: #d1d5db;
 }
 

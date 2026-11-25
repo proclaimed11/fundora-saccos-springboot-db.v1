@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createTheme, MantineProvider, type MantineColorsTuple } from '@mantine/core'
+import { Notifications } from '@mantine/notifications'
 import { ThemeContext } from './themeContext'
 import { themeSurfaces } from './themeContext'
 import {
@@ -24,8 +25,9 @@ import type {
 const PALETTE_STORAGE_KEY = 'project-tracker-theme'
 const COLORS_STORAGE_KEY = 'project-tracker-theme-colors'
 const SIDEBAR_APPEARANCE_STORAGE_KEY = 'project-tracker-sidebar-appearance'
-const BODY_FONT = "'Geist Variable', sans-serif"
-const HEADING_FONT = "'Geist Variable', sans-serif"
+// the same font as src/main.tsx loads and src/index.css names (was 'Geist Variable')
+const BODY_FONT = "'Source Sans 3 Variable', sans-serif"
+const HEADING_FONT = "'Source Sans 3 Variable', sans-serif"
 const HEADER_STYLE_STORAGE_KEY = 'project-tracker-header-style'
 
 type ThemeVariables = CSSProperties & {
@@ -161,7 +163,8 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       sidebarHighlight: sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
       primary: palette.shades[6],
       loader: palette.shades[6],
-      contentBackground: '#ffffff',
+      // a soft greyish milk (was pure #ffffff) so white cards stand out from the page
+      contentBackground: '#f1f2f3',
     }),
     [palette, sidebarAppearance],
   )
@@ -224,8 +227,9 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       '--app-sidebar-indicator': surfaceColors.sidebarIndicator,
       '--app-sidebar-highlight': surfaceColors.sidebarHighlight,
       '--app-sidebar-background': sidebarAppearance === 'dark' ? '#1f2937' : '#ffffff',
-      '--app-sidebar-text': sidebarAppearance === 'dark' ? '#e5e7eb' : '#4b5563',
-      '--app-sidebar-muted': sidebarAppearance === 'dark' ? '#9ca3af' : '#9ca3af',
+      // light sidebar: one step darker than before (was #4b5563 / #9ca3af) so the text reads sharper
+      '--app-sidebar-text': sidebarAppearance === 'dark' ? '#e5e7eb' : '#374151',
+      '--app-sidebar-muted': sidebarAppearance === 'dark' ? '#9ca3af' : '#6b7280',
       '--app-sidebar-border': sidebarAppearance === 'dark' ? '#374151' : '#d1d5db',
       '--app-sidebar-highlight-text': getContrastingTextColor(surfaceColors.sidebarHighlight),
       '--app-sidebar-avatar': sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
@@ -260,6 +264,8 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       }}
     >
       <MantineProvider theme={theme} forceColorScheme="light">
+        {/* toast messages for the whole app: notifications.show({ ... }) from any page */}
+        <Notifications position="top-right" autoClose={5000} zIndex={1000} />
         {children}
       </MantineProvider>
     </ThemeContext.Provider>

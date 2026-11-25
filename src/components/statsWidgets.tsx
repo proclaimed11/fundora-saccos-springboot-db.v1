@@ -91,7 +91,6 @@ export function StatWidget({
   const up = hasChange && change >= 0
   const good = trend === 'up-good' ? up : !up
   const changeColor = flat ? 'text-slate-400' : good ? 'text-sky-500' : 'text-red-500'
-
   return (
     <Card
       padding={0}
@@ -105,7 +104,7 @@ export function StatWidget({
            <Tag
         type={onClick ? 'button' : undefined}
         onClick={onClick}
-        className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${
+        className={`flex w-full flex-col gap-1.5 px-3 py-2.5 text-left ${
           onClick
             ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300'
             : ''
@@ -113,15 +112,38 @@ export function StatWidget({
       >
         {loading ? (
           <>
-            <Skeleton height={40} width={40} circle />
-            <div className="flex-1 space-y-1.5">
-              <Skeleton height={8} width={90} />
-              <Skeleton height={18} width={80} />
-              <Skeleton height={8} width={100} />
+            <Skeleton height={9} width="60%" />
+            <div className="flex items-center gap-3">
+              <Skeleton height={40} width={40} circle />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton height={18} width={80} />
+                <Skeleton height={8} width={100} />
+              </div>
             </div>
           </>
         ) : (
           <>
+            {/* the label across the top of the tile, full width */}
+            {/* a very faint line separates the label from the figures below */}
+            {/* -mx-3 / px-3: the line reaches both edges of the tile while the text keeps its inset */}
+            {/* a greyish-white header band: -mt-2.5 / -mx-3 reach the tile's top and side edges */}
+            <div className="-mx-3 -mt-2.5 flex items-center justify-between gap-2 rounded-t-md border-b border-slate-100 bg-[#fdfdfe] px-3 pb-1 pt-1.5 leading-tight">
+              <span className="min-w-0 truncate text-[13.5px] text-slate-500">{label}</span>
+              {/* the change, as plain coloured text in the top right corner */}
+              {hasChange && (
+                <span className={`inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium ${changeColor}`}>
+                  {flat ? (
+                    <span aria-hidden="true">–</span>
+                  ) : (
+                    <AppIcon name={up ? 'chevron-up' : 'chevron-down'} size={12} strokeWidth={2.5} />
+                  )}
+                  {formatChange(change)}
+                  <span className="sr-only">{flat ? 'no change' : up ? 'increase' : 'decrease'}</span>
+                </span>
+              )}
+            </div>
+
+            <div className="flex w-full items-center gap-3">
             {/* solid circle with a white icon */}
             <span
               aria-hidden="true"
@@ -132,8 +154,6 @@ export function StatWidget({
             </span>
 
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] text-slate-500">{label}</div>
-
               <div
                 title={text}
                 className={`flex items-baseline gap-1 truncate font-bold leading-tight tracking-tight text-slate-800 tabular-nums ${sizeFor(shown)}`}
@@ -166,21 +186,12 @@ export function StatWidget({
               )}
 
               {hasChange ? (
-                <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[11px] leading-tight">
-                  <span className="truncate text-slate-500">{changeLabel}:</span>
-                  <span className={`inline-flex shrink-0 items-center gap-0.5 font-medium ${changeColor}`}>
-                    {flat ? (
-                      <span aria-hidden="true">–</span>
-                    ) : (
-                      <AppIcon name={up ? 'chevron-up' : 'chevron-down'} size={12} strokeWidth={2.5} />
-                    )}
-                    {formatChange(change)}
-                    <span className="sr-only">{flat ? 'no change' : up ? 'increase' : 'decrease'}</span>
-                  </span>
-                </div>
+                // what the change in the top right is compared with
+                <div className="mt-0.5 truncate text-[11px] leading-tight text-slate-500">{changeLabel}</div>
               ) : (
                 hint && <div className="mt-0.5 truncate text-[11px] text-slate-400">{hint}</div>
               )}
+            </div>
             </div>
           </>
         )}

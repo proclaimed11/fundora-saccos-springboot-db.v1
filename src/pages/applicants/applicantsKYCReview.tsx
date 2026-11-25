@@ -66,7 +66,6 @@ export function KycReview() {
 
   const stats = [
     { label: 'Awaiting review', value: rows.length, icon: 'contact-round', color: '#e08a1e' },
-    { label: 'Returning applicants', value: rows.filter((r) => r.isReturning).length, icon: 'refresh-cw', color: '#45bdfc' },
     { label: 'Waiting over 7 days', value: rows.filter((r) => r.waiting > 7).length, icon: 'clock', color: '#ef4444' },
   ]
 
@@ -165,7 +164,7 @@ export function KycReview() {
     >
 
       <PageState loading={isLoading} error={error?.message ?? null} onRetry={() => void refetch()}>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {stats.map((s) => (
           <StatWidget key={s.label} {...s} />
         ))}

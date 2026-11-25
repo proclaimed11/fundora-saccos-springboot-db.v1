@@ -12,6 +12,7 @@ import { ApiError } from '../../api/client'
 import { useApplicants } from '../../api/applicants'
 import { useUserNames } from '../../api/users'
 import {
+  deleteLoanApplication,
   getApplicationWorkflow,
   getApprovalLevels,
   getDraftCollaterals,
@@ -32,6 +33,8 @@ import {
   type ViewLevel,
 } from './loanApplicationProfileTabs'
 import { usePageAccess } from '../auth/usePageAccess'
+import { notifications } from '@mantine/notifications'
+import { ContractConfirmDialog } from './contractDialogs'
 
 const CARD = 'rounded-md bg-white shadow-[0_10px_30px_rgba(76,87,125,0.12)]'
 
@@ -74,7 +77,10 @@ export function LoanApplicationProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [tab, setTab] = useState<string | null>('overview')
-  const { canEdit } = usePageAccess('loans', 'applications')
+  const { canEdit, canDelete } = usePageAccess('loans', 'applications')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const appId = Number(id)
   const validId = Number.isInteger(appId) && appId > 0
@@ -218,6 +224,27 @@ export function LoanApplicationProfile() {
   const status = STATUS[application.status]
   const contract = view.contract
 
+  // removes its guarantors, collateral and documents, then DELETE /api/loan-applications/{id}
+  const removeApplication = async () => {
+    if (deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteLoanApplication(application.id)
+      notifications.show({
+        color: 'red',
+        title: 'Application deleted',
+        message: `${application.applicationNo} was deleted.`,
+        icon: <AppIcon name="trash-2" size={16} />,
+      })
+      navigate('/loan-applications', { replace: true })
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Could not delete the application. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const details = [
     {
       icon: 'percent',
@@ -259,9 +286,38 @@ export function LoanApplicationProfile() {
               Continue application
             </Button>
           )}
+          {canDelete && (
+            <Button
+              size="xs"
+              color="red"
+              leftSection={<AppIcon name="trash-2" />}
+              onClick={() => {
+                setDeleteError(null)
+                setDeleteOpen(true)
+              }}
+            >
+              Delete application
+            </Button>
+          )}
         </>
       }
     >
+      <ContractConfirmDialog
+        opened={deleteOpen}
+        title={deleteError ? 'Could not delete application' : 'Delete application'}
+        message={
+          deleteError ??
+          `${application.applicationNo} and its guarantors and collateral will be permanently deleted.`
+        }
+        confirmLabel={deleting ? 'Deleting…' : deleteError ? 'Try again' : 'Delete application'}
+        danger={!deleteError}
+        onClose={() => {
+          if (deleting) return
+          setDeleteOpen(false)
+          setDeleteError(null)
+        }}
+        onConfirm={() => void removeApplication()}
+      />
       <div className="grid items-start gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         {/* application summary */}
         <div className={`${CARD} p-5`}>

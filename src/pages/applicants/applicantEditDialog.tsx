@@ -1,6 +1,6 @@
 import { AppIcon } from '../../components/appIcon'
 import { useEffect, useState } from 'react'
-import { Alert, Badge, Button, Checkbox, Modal, Select, SimpleGrid, Text, TextInput } from '@mantine/core'
+import { Alert, Badge, Button, Modal, Select, SimpleGrid, Text, TextInput } from '@mantine/core'
 import { DateInput } from '@mantine/dates'
 import { STATUS, fullName, type Applicant } from './applicantsData'
 import { AFRICAN_NATIONALITIES } from './africanCountries'
@@ -113,7 +113,7 @@ export function ApplicantEditDialog({ opened, applicant, saving = false, serverE
     need('address', 'Enter the address')
     need('occupation', 'Enter the occupation')
     need('location', 'Enter the location name')
-    need('locationPin', 'Enter the location pin')
+    // location pin is optional, the same as at registration
 
     setErrors(found)
     if (Object.keys(found).length > 0) return
@@ -219,18 +219,9 @@ export function ApplicantEditDialog({ opened, applicant, saving = false, serverE
             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
               <TextInput label="Occupation" placeholder="Software engineer" {...text('occupation')} />
               <TextInput label="Location name" placeholder="Dar es Salaam City Center" {...text('location')} />
-              <TextInput label="Location pin" placeholder="TZ-DOM-001" {...text('locationPin')} />
+              <TextInput label="Location pin (optional)" placeholder="TZ-DOM-001" {...text('locationPin')} />
             </SimpleGrid>
           </div>
-        </div>
-
-        <div className="rounded-md border border-gray-200 px-3 py-2.5">
-          <Checkbox
-            label="Returning applicant"
-            description="Has been through KYC before. A valid record from the last 12 months lets them skip full KYC."
-            checked={values.isReturning}
-            onChange={(e) => set('isReturning', e.currentTarget.checked)}
-          />
         </div>
 
         <Alert color="blue" variant="light" icon={<AppIcon name="info" />}>

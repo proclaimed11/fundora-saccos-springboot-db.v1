@@ -73,10 +73,11 @@ export function Sidebar({
       <aside
         className={`${
           open
-            ? 'fixed bottom-0 left-0 top-12 z-40 w-[13.5rem]'
+            ? 'fixed bottom-0 left-0 top-12 z-40 w-[12rem]'
             : 'relative z-20 h-full w-14'
         } flex shrink-0 flex-col overflow-hidden bg-sidebar-background shadow-[4px_0_12px_rgba(15,23,42,0.10)] transition-[width,transform] duration-200 lg:relative lg:inset-auto lg:z-20 lg:h-full lg:translate-x-0 ${
-          collapsed ? 'lg:w-14' : 'lg:w-[13.5rem]'
+          // open width (was 13.5rem, then 12.75rem); the header's logo area in dashboardHeader.tsx uses the same value
+          collapsed ? 'lg:w-14' : 'lg:w-[12.7rem]'
         }`}
       >
         {/* thin scrollbar that only appears while scrolling */}
