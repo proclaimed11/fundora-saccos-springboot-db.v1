@@ -14,10 +14,10 @@ import {
   LOANS,
   SAMPLE_PAYMENTS,
   SAMPLE_PENALTIES,
-  applications,
   viewOf,
 } from './loans/loanApplicationsData'
 import { useApplicants, usePendingKycSince } from '../api/applicants'
+import { useAwaitingApprovals } from '../api/loanApplications'
 import { SAMPLE_ACCOUNTS } from './accounting/accountingData'
 import { SAMPLE_CASES } from './collections/collectionsData'
 import { HomeFallback } from '../components/dashboard/homeFallback'
@@ -121,25 +121,6 @@ const waiting = (n: number) => (n <= 0 ? 'today' : n === 1 ? '1 day' : `${n} day
 type Queue = { row: QueueRow; days: number }
 const oldestFirst = (list: Queue[]) => [...list].sort((a, b) => b.days - a.days).map((q) => q.row)
 
-// waiting for an approval decision
-const approvalQueue: Queue[] = applications
-  .filter((a) => a.status === 'CREDIT_APPROVED' || a.status === 'PENDING_APPROVAL')
-  .map((a) => {
-    const days = dayjs().diff(dayjs(a.submittedAt ?? a.created), 'day')
-    return {
-      days,
-      row: {
-        id: a.id,
-        title: a.applicantName,
-        sub: a.applicationNo,
-        value: shortTzs(a.requestedAmount),
-        valueSub: `Waiting ${waiting(days)}`,
-        late: days > LATE_APPROVAL_DAYS,
-        to: `/loan-approvals?review=${a.id}`,
-      },
-    }
-  })
-
 const overdueCollectionsQueue: Queue[] = views
   .filter((loan) => loan.state === 'OVERDUE' && loan.overdueAmount > 0)
   .map((loan) => {
@@ -166,11 +147,29 @@ export function Dashboard() {
   // the dashboard is open to everyone, each widget needs its own permission (set on the Roles page)
   const show = (widget: string) => can('dashboard', 'view', widget)
 
-  const approvalRows = oldestFirst(approvalQueue)
-
   // GET /api/applicants: the applicants waiting for a KYC decision, the same list as the KYC Review page.
   // Waiting counts from the day the code was verified (status history), the registration day until it loads.
   const { data: allApplicants = [] } = useApplicants()
+
+  // waiting for an approval decision: the same list as the Approvals page's "Awaiting" tab (real data, was sample)
+  const { rows: awaitingApproval } = useAwaitingApprovals()
+  const approvalRows = oldestFirst(
+    awaitingApproval.map((a) => {
+      const days = dayjs().startOf('day').diff(dayjs(a.since), 'day')
+      return {
+        days,
+        row: {
+          id: a.id,
+          title: allApplicants.find((p) => p.id === a.applicantId)?.name ?? `Applicant #${a.applicantId}`,
+          sub: `${a.applicationNo} · ${a.levelName}`,
+          value: shortTzs(a.requestedAmount),
+          valueSub: `Waiting ${waiting(days)}`,
+          late: days > LATE_APPROVAL_DAYS,
+          to: `/loan-approvals?review=${a.id}`,
+        },
+      }
+    }),
+  )
   const pendingKyc = allApplicants.filter((a) => a.status === 'PENDING_KYC')
   const pendingSince = usePendingKycSince(pendingKyc.map((a) => a.id))
   const kycRows = oldestFirst(
@@ -286,7 +285,7 @@ export function Dashboard() {
       subtitle={
         <>
           Welcome Back{'  '}
-          <span className="text-sm font-medium text-brand">{user?.name}</span>!
+          <span className="text-sm font-medium text-[color-mix(in_srgb,var(--app-brand)_78%,black)]">{user?.name}</span>!
         </>
       }
     >

@@ -1,9 +1,10 @@
 import { AppIcon } from '../../components/appIcon'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import { ActionIcon, Alert, Badge, Button, Drawer, Menu, Modal, Skeleton, Text, Textarea } from '@mantine/core'
 import { useQuery } from '@tanstack/react-query'
+import { notifications } from '@mantine/notifications'
 import { DashboardLayout } from '../../components/layout/dashboardLayout'
 import { StatWidget } from '../../components/statsWidgets'
 import { CustomTable, type CustomTableColumn } from '../../components/customTable/customTable'
@@ -22,11 +23,10 @@ import { usePageAccess } from '../auth/usePageAccess'
 import { useAuth } from '../../auth/authContext'
 import { useApplicants } from '../../api/applicants'
 import { useUserNames } from '../../api/users'
-import { useServerHierarchies, useServerLevels } from '../../api/approvalHierarchy'
+import { useApprovalChains, type ChainLevel } from '../../api/approvalHierarchy'
 import {
   decideApplication,
   getApplicationWorkflow,
-  getApprovalLevels,
   getDraftCollaterals,
   getDraftGuarantors,
   useApprovalDecisions,
@@ -78,8 +78,8 @@ const normalizeStatus = (s: string): ApplicationStatus => {
 
 type Context = {
   decisions: ApprovalDecision[]
-  /** the default hierarchy's active levels, in order: the chain the backend uses for new decisions */
-  chain: { id: number; levelNo: number; levelName: string; requiredRole: string }[]
+  /** the active levels, in order, of the hierarchy an application follows: its approvePolicyId, else the default */
+  chainOf: (policyId: number | null) => ChainLevel[]
   /** every level of every hierarchy, to name the levels of past decisions */
   levelById: Map<number, { levelNo: number; levelName: string; requiredRole: string }>
   applicantName: (id: number) => string
@@ -110,7 +110,7 @@ function toRow(d: LoanDraft, ctx: Context): Row | null {
   // waiting: the current chain, with the decisions already made filled in;
   // decided: the decisions as they were made
   const levels: LevelRow[] = inStage
-    ? ctx.chain.map((l) => {
+    ? ctx.chainOf(d.approvePolicyId).map((l) => {
         const x = decided.find((dec) => dec.levelId === l.id)
         return x
           ? { ...fromDecision(x), levelNo: l.levelNo, levelName: l.levelName, role: l.requiredRole }
@@ -595,29 +595,25 @@ export function ApprovalsPage() {
   const role = user?.role ?? null
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const [notice, setNotice] = useState<{ text: string; color: 'green' | 'red' } | null>(null)
 
-  // GET /api/loan-applications, /api/approvals, the default chain and every level (to name past decisions)
+  // GET /api/loan-applications, /api/approvals, every hierarchy and level: each application follows its own
+  // hierarchy (approvePolicyId, API v5) or the default; every level also names the levels of past decisions
   const listQuery = useLoanApplications()
   const decisionsQuery = useApprovalDecisions()
-  const chainQuery = useQuery({ queryKey: ['approval-levels'], queryFn: getApprovalLevels, staleTime: 60_000 })
-  const hierarchiesQuery = useServerHierarchies()
-  const allLevels = useServerLevels((hierarchiesQuery.data ?? []).map((h) => h.id))
+  const chains = useApprovalChains()
   const { data: applicantList = [] } = useApplicants()
   // GET /api/users is Admin-only; without it the names fall back to "User #id"
   const userNames = useUserNames()
 
-  const rows = useMemo(() => {
-    const ctx: Context = {
-      decisions: decisionsQuery.data ?? [],
-      chain: chainQuery.data ?? [],
-      levelById: new Map(allLevels.map((l) => [l.id, l])),
-      applicantName: (id) => applicantList.find((a) => a.id === id)?.name ?? `Applicant #${id}`,
-      userName: (id) => (id === null ? '—' : id === user?.id ? 'You' : (userNames.get(id) ?? `User #${id}`)),
-      role,
-    }
-    return (listQuery.data ?? []).map((d) => toRow(d, ctx)).filter((r): r is Row => r !== null)
-  }, [listQuery.data, decisionsQuery.data, chainQuery.data, allLevels, applicantList, userNames, role, user?.id])
+  const ctx: Context = {
+    decisions: decisionsQuery.data ?? [],
+    chainOf: chains.chainOf,
+    levelById: new Map(chains.levels.map((l) => [l.id, l])),
+    applicantName: (id) => applicantList.find((a) => a.id === id)?.name ?? `Applicant #${id}`,
+    userName: (id) => (id === null ? '—' : id === user?.id ? 'You' : (userNames.get(id) ?? `User #${id}`)),
+    role,
+  }
+  const rows = (listQuery.data ?? []).map((d) => toRow(d, ctx)).filter((r): r is Row => r !== null)
 
   const awaiting = rows.filter((r) => r.awaiting)
   const mine = awaiting.filter((r) => r.mine)
@@ -652,21 +648,26 @@ export function ApprovalsPage() {
     const isLast = level !== null && r.levels.indexOf(level) === r.levels.length - 1
     await decideApplication(r.id, decision, { approverId: user.id, comments })
     close()
+    // the result is a top-right toast (was a banner above the stats)
     if (decision === 'reject') {
       setTab('decided')
-      setNotice({
-        text: `${r.applicantName} was rejected at the ${level?.levelName ?? 'current'} level. The application is stopped.`,
+      notifications.show({
         color: 'red',
+        title: 'Loan rejected',
+        message: `${r.applicationNo} was rejected at ${level?.levelName ?? 'the current level'}.`,
+        icon: <AppIcon name="circle-x" size={16} />,
       })
       return
     }
     const next = level ? r.levels[r.levels.indexOf(level) + 1] : undefined
     if (isLast) setTab('decided')
-    setNotice({
-      color: 'green',
-      text: isLast
-        ? `${r.applicantName} is fully approved. Next, its contract is generated.`
-        : `${r.applicantName} approved at the ${level?.levelName ?? 'current'} level.${next ? ` It now waits for ${next.levelName}.` : ''}`,
+    notifications.show({
+      color: 'brand',
+      title: isLast ? 'Loan approved' : 'Level approved',
+      message: isLast
+        ? `${r.applicationNo} is fully approved and ready for its contract.`
+        : `${r.applicationNo} now waits for ${next?.levelName ?? 'the next level'}.`,
+      icon: <AppIcon name="circle-check" size={16} />,
     })
   }
 
@@ -773,7 +774,7 @@ export function ApprovalsPage() {
     },
   ]
 
-  const loadError = listQuery.error ?? decisionsQuery.error ?? chainQuery.error
+  const loadError = listQuery.error ?? decisionsQuery.error ?? chains.error
   return (
     <DashboardLayout
       title="Approvals"
@@ -781,27 +782,15 @@ export function ApprovalsPage() {
       breadcrumbs={[{ label: 'Home', to: '/' }, { label: 'Loans' }, { label: 'Approvals' }]}
     >
       <PageState
-        loading={listQuery.isPending || decisionsQuery.isPending || chainQuery.isPending}
+        loading={listQuery.isPending || decisionsQuery.isPending || chains.isPending}
         error={loadError instanceof Error ? loadError.message : null}
         onRetry={() => {
           void listQuery.refetch()
           void decisionsQuery.refetch()
-          void chainQuery.refetch()
+          void chains.refetch()
         }}
       >
         <div className="space-y-4">
-          {notice && (
-            <Alert
-              color={notice.color}
-              variant="light"
-              withCloseButton
-              onClose={() => setNotice(null)}
-              icon={<AppIcon name={notice.color === 'green' ? 'circle-check' : 'circle-x'} />}
-            >
-              <Text size="sm">{notice.text}</Text>
-            </Alert>
-          )}
-
           {/* row 1: key numbers */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {stats.map((s) => (

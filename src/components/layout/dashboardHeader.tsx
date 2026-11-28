@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ActionIcon, Avatar, Badge, Button, Menu, Text, UnstyledButton } from '@mantine/core'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import dayjs from 'dayjs'
@@ -10,6 +10,7 @@ import { EVENT, SAMPLE_NOTIFICATIONS } from '../../pages/administration/notifica
 import { initials } from '../../pages/applicants/applicantsData'
 import { useRoles } from '../../pages/administration/roles/rolesContext'
 import { useApplicants, usePendingKycSince } from '../../api/applicants'
+import { useAwaitingApprovals } from '../../api/loanApplications'
 
 // a pinned alert at the top of the bell list while applicants wait for a KYC decision, from GET /api/applicants.
 // Its own component so the request only runs for roles that can open the KYC Review page.
@@ -59,6 +60,52 @@ function KycReviewAlert({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+// a pinned alert at the top of the bell list while applications wait at a level the signed-in user's role decides
+// (the Approvals page's "Needs my decision"). Its own component so the requests only run for roles that can open Approvals.
+function ApprovalsAlert({ role, onOpen }: { role: string; onOpen: () => void }) {
+  const { rows } = useAwaitingApprovals()
+  const mine = rows.filter((r) => r.requiredRole.trim() === role.trim())
+  const count = mine.length
+  if (count === 0) return null
+
+  // the latest arrival, shown at the top right like the other items' dates
+  const latest = mine.map((r) => r.since).filter(Boolean).sort().pop()
+
+  return (
+    <div className="border-b border-slate-100 p-1.5">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex w-full gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"
+      >
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+          <AppIcon name="square-check" size={15} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <Text size="xs" fw={600} className="text-slate-800">
+                Approvals
+              </Text>
+              <Badge size="xs" variant="filled" color="red" radius="xl">
+                {count > 99 ? '99+' : count}
+              </Badge>
+            </div>
+            {latest && (
+              <Text size="xs" className="shrink-0 text-slate-400">
+                {dayjs(latest).format('MMM D')}
+              </Text>
+            )}
+          </div>
+          <Text size="xs" className="mt-1 leading-relaxed text-slate-600">
+            {count === 1 ? '1 loan application is' : `${count} loan applications are`} waiting for your decision.
+          </Text>
+        </div>
+      </button>
+    </div>
+  )
+}
+
 export type Crumb = { label: string; to?: string }
 
 export type DashboardHeaderProps = {
@@ -101,12 +148,44 @@ export function DashboardHeader({
   const location = useLocation()
   const { can } = useRoles()
   const canReviewKyc = can('applicants', 'view', 'kyc-review')
+  const canOpenApprovals = can('loans', 'view', 'approvals')
 
   // the same sample data as the Notifications page, newest first
   const unread = SAMPLE_NOTIFICATIONS.filter((n) => n.status === 'SENT').sort((a, b) =>
     b.sentAt.localeCompare(a.sentAt),
   )
   const latest = unread.slice(0, 5)
+
+  // The search sits in the centre of the header. When the breadcrumb is long enough to reach it,
+  // the search leaves the centre and sits after the breadcrumb, shrinking (down to 9rem) so the breadcrumb fits.
+  const headerRef = useRef<HTMLElement>(null)
+  const crumbsRef = useRef<HTMLOListElement>(null)
+  const [crowded, setCrowded] = useState(false)
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    const list = crumbsRef.current
+    if (!header || !list) {
+      setCrowded(false)
+      return
+    }
+    const measure = () => {
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+      // the breadcrumb's full width, as if nothing were cut off
+      const previous = list.style.width
+      list.style.width = 'max-content'
+      const natural = list.offsetWidth
+      list.style.width = previous
+      const box = header.getBoundingClientRect()
+      const centredSearchLeft = box.left + box.width / 2 - 7.5 * rem // the 15rem box, centred
+      setCrowded(list.getBoundingClientRect().left + natural + 1.5 * rem > centredSearchLeft)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    // the breadcrumb also moves while the sidebar opens or collapses (its width animates)
+    if (list.parentElement) observer.observe(list.parentElement)
+    return () => observer.disconnect()
+  }, [breadcrumbs, collapsed])
 
   return (
     <div
@@ -120,10 +199,10 @@ export function DashboardHeader({
     >
       {/* fades the bottom of the patterned band into the white page */}
       <div aria-hidden="true" className="header-band-fade" />
-      <header className="relative z-30 flex h-12 shrink-0 items-center text-slate-700">
+      <header ref={headerRef} className="relative z-30 flex h-12 shrink-0 items-center text-slate-700">
         <div
           className={`relative flex shrink-0 items-center px-3 transition-[width] duration-200 lg:justify-start lg:px-4 ${
-            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-[12rem]'
+            collapsed ? 'lg:w-14 lg:justify-center lg:px-0' : 'lg:w-[13.25rem]'
           }`}
         >
           <img
@@ -157,13 +236,10 @@ export function DashboardHeader({
         {breadcrumbs && breadcrumbs.length > 0 && (
           <nav
             aria-label="Breadcrumb"
-            className={`min-w-0 flex-1 overflow-hidden px-2 ${
-              collapsed
-                ? 'xl:max-w-[calc(50vw_-_12rem)]'
-                : 'xl:max-w-[calc(50vw_-_24rem)]'
-            }`}
+            // takes its own width first; only gets cut off once the search has shrunk as far as it can
+            className="min-w-0 flex-[1_1_auto] overflow-hidden px-2"
           >
-            <ol className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs">
+            <ol ref={crumbsRef} className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs">
               {breadcrumbs.map((crumb, i) => {
                 const isLast = i === breadcrumbs.length - 1
                 return (
@@ -204,8 +280,16 @@ export function DashboardHeader({
           </nav>
         )}
 
-        <div className="ml-auto flex min-w-0 shrink-0 items-center xl:absolute xl:left-1/2 xl:ml-0 xl:-translate-x-1/2">
-          <NavSearch onNavigate={onNavigate} />
+        {/* wide screens: centred in the header; when the breadcrumb reaches it, it follows the breadcrumb and
+            shrinks first (flex-shrink 100) down to 9rem. Narrow screens: just the search icon on the right. */}
+        <div
+          className={`ml-auto flex min-w-0 shrink-0 items-center ${
+            crowded
+              ? 'xl:ml-4 xl:min-w-[9rem] xl:flex-[0_100_15rem]'
+              : 'xl:absolute xl:left-1/2 xl:ml-0 xl:-translate-x-1/2'
+          }`}
+        >
+          <NavSearch onNavigate={onNavigate} fluid={crowded} />
         </div>
 
         <div className="relative z-10 ml-auto flex shrink-0 items-center gap-0.5 px-1.5 sm:gap-1 sm:px-3">
@@ -252,6 +336,9 @@ export function DashboardHeader({
               </div>
 
               {canReviewKyc && <KycReviewAlert onOpen={() => navigate('/kyc-review')} />}
+              {canOpenApprovals && user.role && (
+                <ApprovalsAlert role={user.role} onOpen={() => navigate('/loan-approvals')} />
+              )}
 
               {latest.length === 0 ? (
                 <div className="px-4 py-10 text-center">
@@ -373,7 +460,8 @@ export function DashboardHeader({
               </Text>
 
               {subtitle && (
-                <Text size="xs" c="dimmed" mt={6} className="truncate">
+                // the page subtitle: 13px (was xs, 12px)
+                <Text size="13px" c="dimmed" mt={6} className="truncate">
                   {subtitle}
                 </Text>
               )}

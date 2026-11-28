@@ -14,7 +14,6 @@ import { useUserNames } from '../../api/users'
 import {
   deleteLoanApplication,
   getApplicationWorkflow,
-  getApprovalLevels,
   getDraftCollaterals,
   getDraftGuarantors,
   getLoanApplication,
@@ -33,6 +32,7 @@ import {
   type ViewLevel,
 } from './loanApplicationProfileTabs'
 import { usePageAccess } from '../auth/usePageAccess'
+import { useApprovalChains } from '../../api/approvalHierarchy'
 import { notifications } from '@mantine/notifications'
 import { ContractConfirmDialog } from './contractDialogs'
 
@@ -109,8 +109,8 @@ export function LoanApplicationProfile() {
     queryFn: () => getApplicationWorkflow(appId),
     enabled: validId,
   })
-  // GET /api/approval-hierarchys/default + /levels
-  const levelsQuery = useQuery({ queryKey: ['approval-levels'], queryFn: getApprovalLevels, staleTime: 5 * 60_000 })
+  // GET /api/approval-hierarchys + their levels: the loan follows its own hierarchy (approvePolicyId), else the default
+  const chains = useApprovalChains()
 
   const { data: applicants = [] } = useApplicants()
   const names = useUserNames()
@@ -173,7 +173,7 @@ export function LoanApplicationProfile() {
   const approvals = wf?.approvals ?? []
 
   // every level of the hierarchy, with the decision taken there (if any)
-  const levels: ViewLevel[] = (levelsQuery.data ?? []).map((l) => {
+  const levels: ViewLevel[] = chains.chainOf(d.approvePolicyId).map((l) => {
     const a = approvals.find((x) => x.levelId === l.id || x.levelNo === l.levelNo)
     const decision = a?.decision.includes('REJECT') ? 'REJECTED' : a?.decision.includes('APPROV') ? 'APPROVED' : 'PENDING'
     return {
@@ -209,6 +209,11 @@ export function LoanApplicationProfile() {
     })),
     credit: wf?.credit ? { ...wf.credit, assessedByName: userName(wf.credit.assessedBy) } : null,
     levels,
+    hierarchy: (() => {
+      const h = chains.hierarchyOf(d.approvePolicyId)
+      // "own" only when the saved id is the hierarchy actually used (an inactive one falls back to the default)
+      return h ? { name: h.name, ownPolicy: d.approvePolicyId !== null && h.id === d.approvePolicyId } : null
+    })(),
     contract: wf?.contract ?? null,
     loan: wf?.loan ?? null,
     history: (wf?.history ?? []).map((h) => ({
@@ -253,6 +258,14 @@ export function LoanApplicationProfile() {
     },
     { icon: 'calendar', label: 'Tenure', value: `${application.tenure} months` },
     { icon: 'hand-coins', label: 'Loan officer', value: application.loanOfficer },
+    // which approval hierarchy this loan follows (its own, or the default when none was set)
+    {
+      icon: 'square-check',
+      label: 'Approval hierarchy',
+      value: `${chains.hierarchyOf(d.approvePolicyId)?.name ?? '-'}${
+        chains.hierarchyOf(d.approvePolicyId)?.id === d.approvePolicyId ? '' : ' (default)'
+      }`,
+    },
     { icon: 'calendar-days', label: 'Created', value: application.created ? dayjs(application.created).format('MMM D, YYYY') : '-' },
     {
       icon: 'send',

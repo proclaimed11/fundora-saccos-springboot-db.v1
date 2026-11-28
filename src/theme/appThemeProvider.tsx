@@ -160,7 +160,7 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
   const defaultSurfaceColors = useMemo<ThemeSurfaceColors>(
     () => ({
       sidebarIndicator: palette.shades[6],
-      sidebarHighlight: sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
+      sidebarHighlight: sidebarAppearance === 'dark' ? '#3a4659' : '#fafcfb',
       primary: palette.shades[6],
       loader: palette.shades[6],
       // a soft greyish milk (was pure #ffffff) so white cards stand out from the page
@@ -226,11 +226,11 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
       '--app-brand-subtle': '#fafcfb',
       '--app-sidebar-indicator': surfaceColors.sidebarIndicator,
       '--app-sidebar-highlight': surfaceColors.sidebarHighlight,
-      '--app-sidebar-background': sidebarAppearance === 'dark' ? '#1f2937' : '#ffffff',
+      '--app-sidebar-background': sidebarAppearance === 'dark' ? '#2c374a' : '#ffffff',
       // light sidebar: one step darker than before (was #4b5563 / #9ca3af) so the text reads sharper
       '--app-sidebar-text': sidebarAppearance === 'dark' ? '#e5e7eb' : '#374151',
       '--app-sidebar-muted': sidebarAppearance === 'dark' ? '#9ca3af' : '#6b7280',
-      '--app-sidebar-border': sidebarAppearance === 'dark' ? '#374151' : '#d1d5db',
+      '--app-sidebar-border': sidebarAppearance === 'dark' ? '#404c60' : '#d1d5db',
       '--app-sidebar-highlight-text': getContrastingTextColor(surfaceColors.sidebarHighlight),
       '--app-sidebar-avatar': sidebarAppearance === 'dark' ? '#374151' : '#fafcfb',
       '--app-sidebar-avatar-text': sidebarAppearance === 'dark' ? '#f9fafb' : palette.shades[8],
@@ -245,7 +245,9 @@ export function AppThemeProvider({ children }: { children: ReactNode }) {
     Object.entries(themeVariables).forEach(([property, value]) => {
       root.style.setProperty(property, value)
     })
-  }, [themeVariables])
+    // lets CSS style things per sidebar, e.g. [data-sidebar='dark'] .sidebar-icon-box in src/index.css
+    root.dataset.sidebar = sidebarAppearance
+  }, [themeVariables, sidebarAppearance])
 
   return (
     <ThemeContext.Provider

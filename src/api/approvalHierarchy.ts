@@ -157,6 +157,37 @@ export const useServerLevels = (hierarchyIds: number[]) =>
     })),
   })
 
+export type ChainLevel = { id: number; levelNo: number; levelName: string; requiredRole: string }
+
+// The steps a loan follows, the same rule as the backend (API v5): its own approvePolicyId when that hierarchy
+// exists and is active, otherwise the is_default hierarchy (or the first active one). Only active levels, in order.
+export function useApprovalChains() {
+  const hierarchies = useServerHierarchies()
+  const list = hierarchies.data ?? []
+  const levels = useServerLevels(list.map((h) => h.id))
+
+  const fallback = list.find((h) => h.isDefault && h.isActive) ?? list.find((h) => h.isActive) ?? null
+  const hierarchyOf = (policyId: number | null) =>
+    list.find((h) => h.id === policyId && h.isActive) ?? fallback
+  const chainOf = (policyId: number | null): ChainLevel[] => {
+    const h = hierarchyOf(policyId)
+    if (!h) return []
+    return levels
+      .filter((l) => l.hierarchyId === h.id && l.isActive)
+      .sort((a, b) => a.levelNo - b.levelNo)
+      .map(({ id, levelNo, levelName, requiredRole }) => ({ id, levelNo, levelName, requiredRole }))
+  }
+  return {
+    hierarchyOf,
+    chainOf,
+    levels,
+    isLoading: hierarchies.isLoading,
+    isPending: hierarchies.isPending,
+    error: hierarchies.error,
+    refetch: hierarchies.refetch,
+  }
+}
+
 // which approval levels ask for each role (by name, as required_role stores it), e.g.
 // { 'Loan Officer': ['Level 2 "Loan officer" in Normal Loans'] }. Used to protect roles from rename/delete
 export function useRoleUsage(): { usage: Record<string, string[]>; loading: boolean } {

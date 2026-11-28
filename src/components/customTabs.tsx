@@ -52,10 +52,12 @@ export function CustomTabs({
               role="tab"
               aria-selected={selected}
               onClick={() => onChange(tab.value)}
-              className={`flex w-max flex-none items-center justify-center gap-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-center text-xs font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+              // every tab has a 1px border so switching tabs never shifts the size:
+              // active = a very faint theme-colour line, inactive = a faint grey line
+              className={`flex w-max flex-none items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-3 py-1.5 text-center text-xs font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                 selected
-                  ? 'bg-white text-brand shadow-xs'
-                  : 'bg-gray-50/60 text-gray-500 hover:bg-gray-100/70 hover:text-gray-800'
+                  ? 'border-[color-mix(in_srgb,var(--app-brand)_25%,transparent)] bg-white text-brand shadow-xs'
+                  : 'border-gray-200/70 bg-gray-50/60 text-gray-500 hover:bg-gray-100/70 hover:text-gray-800'
               }`}
             >
               {tab.icon && <AppIcon name={tab.icon} size={13} className="shrink-0" />}

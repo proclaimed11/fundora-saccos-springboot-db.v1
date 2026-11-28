@@ -8,22 +8,24 @@ export type NavItem = {
   /** a page key inside that area, so a role can be given some pages of an area and not others */
   page?: string
 }
-export type NavSection = { label: string; items: NavItem[] }
+// icon: shown on the section's own row when it folds (the main nav); its links then show no icon (the sub navs).
+// group: the small grey label above a run of sections (Overview, Operations...), never the same word as a nav
+export type NavSection = { label: string; group: string; icon?: string; items: NavItem[] }
 
 export const navSections: NavSection[] = [
   {
-    label: 'Main',
+    label: 'Main', group: 'Overview',
     items: [{ key: 'dashboard', label: 'Dashboard', icon: 'gauge', path: '/' }],
   },
   {
-    label: 'Applicants',
+    label: 'Applicants', group: 'Operations', icon: 'users',
     items: [
       { key: 'applicants', label: 'Applicants', icon: 'users', path: '/applicants', area: 'applicants', page: 'applicants' },
       { key: 'kyc-review', label: 'KYC Review', icon: 'contact-round', path: '/kyc-review', area: 'applicants', page: 'kyc-review' },
     ],
   },
   {
-    label: 'Loans',
+    label: 'Loans', group: 'Operations', icon: 'hand-coins',
     items: [
       { key: 'applications', label: 'Applications', icon: 'file-text', path: '/loan-applications', area: 'loans', page: 'applications' },
       { key: 'approvals', label: 'Approvals', icon: 'square-check', path: '/loan-approvals', area: 'loans', page: 'approvals' },
@@ -34,14 +36,14 @@ export const navSections: NavSection[] = [
     ],
   },
   {
-    label: 'Repayments',
+    label: 'Repayments', group: 'Operations', icon: 'banknote',
     items: [
       { key: 'payments', label: 'Payments', icon: 'credit-card', path: '/payments', area: 'repayments', page: 'payments' },
       { key: 'penalties', label: 'Penalties & Grace', icon: 'clock', path: '/penalties', area: 'repayments', page: 'penalties' },
     ],
   },
   {
-    label: 'Collections',
+    label: 'Collections', group: 'Operations', icon: 'phone',
     items: [
       { key: 'collection-cases', label: 'Collection Cases', icon: 'phone', path: '/collection-cases', area: 'collections', page: 'collection-cases' },
       { key: 'recovery-cases', label: 'Recovery Cases', icon: 'undo-2', path: '/recovery-cases', area: 'collections', page: 'recovery-cases' },
@@ -49,19 +51,19 @@ export const navSections: NavSection[] = [
     ],
   },
   {
-    label: 'Accounting',
+    label: 'Accounting', group: 'Finance & Insights', icon: 'calculator',
     items: [
       { key: 'chart-of-accounts', label: 'Chart of Accounts', icon: 'list-ordered', path: '/chart-of-accounts', area: 'accounting', page: 'chart-of-accounts' },
       { key: 'gl-transactions', label: 'GL Transactions', icon: 'book', path: '/gl-transactions', area: 'accounting', page: 'gl-transactions' },
     ],
   },
   {
-    label: 'Reports',
+    label: 'Reports', group: 'Finance & Insights', icon: 'file-chart-column',
     // one page only, so no page key
     items: [{ key: 'reports', label: 'Reports', icon: 'file-chart-column', path: '/reports', area: 'reports' }],
   },
   {
-    label: 'Administration',
+    label: 'Administration', group: 'System', icon: 'settings',
     items: [
       { key: 'users', label: 'Users', icon: 'circle-user-round', path: '/users', area: 'administration', page: 'users' },
       { key: 'roles', label: 'Roles', icon: 'key-round', path: '/roles', area: 'administration', page: 'roles' },

@@ -503,7 +503,7 @@ type ApplicationSummaryProps = {
   applicantName: string
   applicantNo: string
   officerName: string
-  /** the approval hierarchy shown on Loan details (screen only for now) */
+  /** the approval hierarchy shown on Loan details (saved as approvePolicyId) */
   hierarchyName: string
   installment: number
   /** the earlier steps can be opened again */
@@ -801,8 +801,8 @@ type CardShellProps = {
 
 /* ---------- guarantor verification by email code (required) ---------- */
 
-// the API's rules: a code lasts 24 hours, a new one can be sent 60 seconds after the last
-const OTP_VALID_MS = 24 * 60 * 60 * 1000
+// the API's rules (v5): a code lasts 5 minutes, a new one can be sent 60 seconds after the last
+const OTP_VALID_MS = 5 * 60 * 1000
 const OTP_RESEND_SECONDS = 60
 // the moment a code was sent; read in event handlers only, never while rendering
 const timeNow = () => Date.now()
@@ -828,7 +828,7 @@ function forgetOtpSent(guarantorId: number) {
   }
 }
 
-// the remembered send time, or null when there is none or the code has run out (older than 24 hours)
+// the remembered send time, or null when there is none or the code has run out (older than 5 minutes)
 function recalledOtpSent(guarantorId: number): number | null {
   try {
     const at = Number(window.localStorage.getItem(otpSentKey(guarantorId)))
@@ -870,7 +870,7 @@ function GuarantorVerification({ item, errors, onChange, onSend, onVerify }: Gua
 
   const resendIn = sentAt === null ? 0 : Math.max(0, OTP_RESEND_SECONDS - Math.floor((now - sentAt) / 1000))
   const emailOk = EMAIL.test(item.email.trim())
-  // a saved guarantor may still have a code from earlier (it lasts 24 hours), so the box opens once it is saved
+  // a saved guarantor may still have a code from earlier (it lasts 5 minutes), so the box opens once it is saved
   const canEnterCode = item.serverId !== null || sentAt !== null
 
   const act = async (kind: 'send' | 'verify') => {
@@ -916,7 +916,7 @@ function GuarantorVerification({ item, errors, onChange, onSend, onVerify }: Gua
         </Badge>
       </Group>
       <Text size="xs" c="dimmed">
-        The guarantor confirms by reading back the 6-digit code emailed to them. It stays valid for 24 hours.
+        The guarantor confirms by reading back the 6-digit code emailed to them. It stays valid for 5 minutes.
       </Text>
 
       <Checkbox
@@ -971,7 +971,7 @@ function GuarantorVerification({ item, errors, onChange, onSend, onVerify }: Gua
             : !emailOk
               ? 'Enter the guarantor email above to send a code.'
               : item.serverId !== null
-                ? 'If a code was sent earlier (it lasts 24 hours), enter it, or send a new one.'
+                ? 'If a code was sent in the last 5 minutes, enter it, or send a new one.'
                 : 'Send code saves this guarantor and emails them the code.'}
       </Text>
       {!item.exposureChecked && code.length === 6 && (
@@ -1291,7 +1291,7 @@ export function NewLoanApplicationPage() {
     return u ? (u.name !== 'Unknown' ? u.name : u.username) : `User #${id}`
   }
 
-  /* ---------- approval hierarchy (screen only: the backend cannot store it per loan yet) ---------- */
+  /* ---------- approval hierarchy: saved with the draft as approvePolicyId (API v5) ---------- */
 
   // GET /api/approval-hierarchys + their levels: active hierarchies with at least one active level
   const { can } = useRoles()
@@ -1443,6 +1443,8 @@ export function NewLoanApplicationPage() {
   const applyDraft = (d: LoanDraft) => {
     const restored = fromDraft(d)
     setValues(restored)
+    // the hierarchy saved with the draft (approvePolicyId), or the one in use when it has none
+    setHierarchyChoice(d.approvePolicyId)
     setErrors({})
     setGuarantorErrors({})
     setCollateralErrors({})
@@ -1499,10 +1501,19 @@ export function NewLoanApplicationPage() {
     return created.id
   }
 
+  // the approval hierarchy sent with a save: the one picked here (Admin / "Change hierarchy" only) on every save;
+  // otherwise only on the last save before submitting, where the hierarchy in use is stamped on the loan so
+  // switching the default later does not reroute it
+  const withHierarchy = (body: ProgressBody, stepId: StepId): ProgressBody => {
+    if (hierarchyChoice !== null) return { ...body, approvePolicyId: hierarchyChoice }
+    if (stepId === 'review' && chosenHierarchy) return { ...body, approvePolicyId: chosenHierarchy.id }
+    return body
+  }
+
   // PUT /api/loan-applications/{id}/progress, with the stage to reopen on
   const persist = async (stepId: StepId): Promise<number> => {
     const id = await ensureDraft()
-    await saveLoanProgress(id, progressBody(values, stepId))
+    await saveLoanProgress(id, withHierarchy(progressBody(values, stepId), stepId))
     return id
   }
 
@@ -1690,7 +1701,7 @@ export function NewLoanApplicationPage() {
           : { ...prev, collateralRequired: false, collaterals: updated.collaterals },
       )
       // PUT /progress, so the application on the server no longer asks for this step
-      if (draftId !== null) await saveLoanProgress(draftId, progressBody(updated, 'details'))
+      if (draftId !== null) await saveLoanProgress(draftId, withHierarchy(progressBody(updated, 'details'), 'details'))
       setNotice(kind === 'guarantor' ? 'The guarantors were removed.' : 'The collateral was removed.')
     })
   }
@@ -2374,7 +2385,7 @@ export function NewLoanApplicationPage() {
                 </div>
 
                 {/* who approves this loan: the hierarchy in use, or another one for users allowed to change it.
-                    Screen only for now, the backend cannot store a hierarchy per loan yet */}
+                    Saved with the draft as approvePolicyId (API v5) */}
                 <Select
                   label="Approval hierarchy"
                   description={
@@ -2986,8 +2997,9 @@ export function NewLoanApplicationPage() {
       <ContractConfirmDialog
         opened={cancelOpen}
         title="Cancel application"
-        message={`Leave without submitting? Everything entered for ${applicant?.name ?? 'this applicant'}, including any saved draft, is discarded. Use "Save draft and exit" to keep it instead.`}
+        message={`This application and its draft will be discarded. To keep it, use "Save draft and exit".`}
         confirmLabel="Discard and leave"
+        danger
         onClose={() => setCancelOpen(false)}
         onConfirm={discard}
       />

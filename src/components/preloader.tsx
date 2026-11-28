@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import logo from '../assets/logo.png'
 
 const SHOW_MS = 600
+
+// a 3 x 3 grid; each tile's delay follows its diagonal (row + column), so the light sweeps corner to corner
+const TILES = Array.from({ length: 9 }, (_, i) => Math.floor(i / 3) + (i % 3))
 
 export function Preloader() {
   const { pathname } = useLocation()
@@ -22,24 +24,22 @@ export function Preloader() {
 
   return (
     <div
+      role="status"
+      aria-live="polite"
       aria-hidden={!visible}
-      className={`route-loader fixed inset-0 z-[1000] flex items-center justify-center overflow-hidden ${
+      className={`route-loader fixed inset-0 z-[1000] flex items-center justify-center ${
         visible
           ? 'opacity-100 transition-none'
-          : 'pointer-events-none opacity-0 transition-opacity duration-700 ease-out'
+          : 'pointer-events-none opacity-0 transition-opacity duration-500 ease-out'
       }`}
     >
-      <div className="route-loader__ambient" aria-hidden="true" />
       <div key={pathname} className="route-loader__content">
-        <div className="route-loader__mark">
-          <div className="route-loader__orbit route-loader__orbit--outer" />
-          <div className="route-loader__orbit route-loader__orbit--inner" />
-          <img src={logo} alt="" className="route-loader__logo" />
+        <div className="route-loader__grid" aria-hidden="true">
+          {TILES.map((diagonal, i) => (
+            <span key={i} style={{ animationDelay: `${diagonal * 110}ms` }} />
+          ))}
         </div>
-        <div className="route-loader__progress" aria-hidden="true">
-          <span />
-        </div>
-        <span className="route-loader__label">Loading your workspace</span>
+        <span className="route-loader__label">Loading</span>
       </div>
     </div>
   )

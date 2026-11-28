@@ -79,7 +79,7 @@ function LivePreview({
         {/* sidebar */}
         <div
           className="w-28 shrink-0 py-2"
-          style={{ backgroundColor: dark ? '#1f2937' : '#ffffff', color: dark ? '#e5e7eb' : '#4b5563' }}
+          style={{ backgroundColor: dark ? '#2c374a' : '#ffffff', color: dark ? '#e5e7eb' : '#4b5563' }}
         >
           {PREVIEW_NAV.map((item) => (
             <div

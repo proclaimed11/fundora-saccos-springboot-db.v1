@@ -1,14 +1,38 @@
 import { AppIcon } from '../appIcon'
 import { ActionIcon, Autocomplete } from '@mantine/core'
+import { useHotkeys } from '@mantine/hooks'
 import { useEffect, useRef, useState } from 'react'
+
+// the shortcut hint shows ⌘ K on a Mac and Ctrl K elsewhere (the hotkey "mod+K" handles both)
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform)
+// the same width as Tailwind's xl, where the full search box replaces the icon
+const WIDE_SCREEN = '(min-width: 80rem)'
 import { visibleSections } from './navItems'
 import { useRoles } from '../../pages/administration/roles/rolesContext'
 
-export function NavSearch({ onNavigate }: { onNavigate: (key: string) => void }) {
+/** fluid: fill the space the header gives it (it shrinks when the breadcrumb is long) instead of a fixed width */
+export function NavSearch({ onNavigate, fluid = false }: { onNavigate: (key: string) => void; fluid?: boolean }) {
   const [query, setQuery] = useState('')
   const [mobileOpen, setMobileOpen] = useState(false)
   const mobileInputRef = useRef<HTMLInputElement>(null)
+  const desktopInputRef = useRef<HTMLInputElement>(null)
+  // the box is narrower at rest and widens while typing
+  const [focused, setFocused] = useState(false)
   const { can } = useRoles()
+
+  // Ctrl+K (⌘K on a Mac) from anywhere: focus the box, or open the small search on narrower screens
+  useHotkeys(
+    [
+      [
+        'mod+K',
+        () => {
+          if (window.matchMedia(WIDE_SCREEN).matches) desktopInputRef.current?.focus()
+          else setMobileOpen(true)
+        },
+      ],
+    ],
+    [], // works even while another input has the cursor
+  )
   // search only offers the pages the current role may open
   const searchItems = visibleSections(can).flatMap((section) =>
     section.items.map((item) => ({ ...item, section: section.label })),
@@ -48,10 +72,14 @@ export function NavSearch({ onNavigate }: { onNavigate: (key: string) => void })
   return (
     <>
       <Autocomplete
+        ref={desktopInputRef}
         aria-label="Search pages"
+        aria-keyshortcuts={IS_MAC ? 'Meta+K' : 'Control+K'}
         placeholder="Search or jump to…"
         value={query}
         onChange={setQuery}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         data={suggestions}
         dropdownOpened={query.trim().length > 0}
         limit={6}
@@ -59,9 +87,26 @@ export function NavSearch({ onNavigate }: { onNavigate: (key: string) => void })
         onOptionSubmit={selectSuggestion}
         renderOption={renderOption}
         leftSection={<AppIcon name="search" size={14} strokeWidth={1.5} className="text-brand" />}
+        // the shortcut hint, hidden while typing so it never covers the text
+        rightSection={
+          focused || query ? null : (
+            // a small theme-tinted key cap: brand-coloured text on a faint brand wash, with a soft brand edge
+            <span
+              aria-hidden="true"
+              className="pointer-events-none inline-flex items-center gap-0.5 whitespace-nowrap rounded-[5px] border border-[color-mix(in_srgb,var(--app-brand)_28%,transparent)] border-b-[color-mix(in_srgb,var(--app-brand)_45%,transparent)] bg-[color-mix(in_srgb,var(--app-brand)_8%,white)] px-1.5 py-px text-[10px] font-semibold leading-4 text-[var(--app-brand)]"
+            >
+              {IS_MAC ? '⌘' : 'Ctrl'}
+              <span className="opacity-60">+</span>K
+            </span>
+          )
+        }
+        rightSectionWidth={60}
         size="xs"
         radius="md"
-        className="hidden w-72 max-w-[28vw] xl:block"
+        // 15rem at rest (was 18rem), back to 18rem while in use
+        className={`hidden transition-[width] duration-200 ease-out xl:block ${
+          fluid ? 'w-full' : `max-w-[28vw] ${focused ? 'w-72' : 'w-60'}`
+        }`}
         classNames={{
           input:
             'border border-emerald-900/10 bg-[#f7faf8] text-slate-700 placeholder:text-slate-500 hover:bg-white focus:bg-white',

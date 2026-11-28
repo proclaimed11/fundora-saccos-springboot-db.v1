@@ -58,7 +58,7 @@ function shorten(text: string): { num: string; unit: string } {
 
 // long currency values shrink instead of being cut off
 const sizeFor = (text: string) =>
-  text.length > 16 ? 'text-[14px]' : text.length > 12 ? 'text-[16px]' : text.length > 8 ? 'text-[19px]' : 'text-[22px]'
+  text.length > 16 ? 'text-[15px]' : text.length > 12 ? 'text-[17px]' : text.length > 8 ? 'text-[20.5px]' : 'text-[24px]'
 
 export function StatWidget({
   value,
@@ -128,7 +128,7 @@ export function StatWidget({
             {/* -mx-3 / px-3: the line reaches both edges of the tile while the text keeps its inset */}
             {/* a greyish-white header band: -mt-2.5 / -mx-3 reach the tile's top and side edges */}
             <div className="-mx-3 -mt-2.5 flex items-center justify-between gap-2 rounded-t-md border-b border-slate-100 bg-[#fdfdfe] px-3 pb-1 pt-1.5 leading-tight">
-              <span className="min-w-0 truncate text-[13.5px] text-slate-500">{label}</span>
+              <span className="min-w-0 truncate text-[13.5px] text-slate-700">{label}</span>
               {/* the change, as plain coloured text in the top right corner */}
               {hasChange && (
                 <span className={`inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium ${changeColor}`}>
@@ -187,9 +187,9 @@ export function StatWidget({
 
               {hasChange ? (
                 // what the change in the top right is compared with
-                <div className="mt-0.5 truncate text-[11px] leading-tight text-slate-500">{changeLabel}</div>
+                <div className="mt-0.5 truncate text-[11px] leading-tight text-slate-600">{changeLabel}</div>
               ) : (
-                hint && <div className="mt-0.5 truncate text-[11px] text-slate-400">{hint}</div>
+                hint && <div className="mt-0.5 truncate text-[11px] text-slate-500">{hint}</div>
               )}
             </div>
             </div>

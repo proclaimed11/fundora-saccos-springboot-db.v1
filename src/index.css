@@ -3,7 +3,7 @@
 
 html {
   /* every rem size (Mantine and Tailwind) scales from this; was 14.29px, about 5% smaller now */
-  font-size: 16px;
+  font-size: 15.5px;
 }
 
 @theme {
@@ -339,161 +339,249 @@ html {
   }
 }
 
+/* ---------- page loader: a 3 x 3 tile grid lit in a diagonal wave (src/components/preloader.tsx) ---------- */
+
 .route-loader {
-  background: rgb(255 255 255 / 84%);
-  backdrop-filter: blur(12px);
-}
-
-.route-loader__ambient {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--app-loader) 8%, transparent), transparent 56%);
-}
-
-.route-loader__ambient::before,
-.route-loader__ambient::after {
-  position: absolute;
-  width: min(58vw, 34rem);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--app-loader) 10%, transparent);
-  content: "";
-  filter: blur(72px);
-  animation: route-loader-drift 4s ease-in-out infinite alternate;
-}
-
-.route-loader__ambient::before {
-  top: 8%;
-  left: 8%;
-}
-
-.route-loader__ambient::after {
-  right: 8%;
-  bottom: 8%;
-  animation-delay: -2s;
+  background: rgb(255 255 255 / 88%);
+  backdrop-filter: blur(6px);
 }
 
 .route-loader__content {
-  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.25rem;
-  animation: route-loader-enter 450ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  gap: 1rem;
+  animation: route-loader-enter 300ms ease-out both;
 }
 
-.route-loader__mark {
-  position: relative;
+.route-loader__grid {
   display: grid;
-  width: 9rem;
-  height: 9rem;
-  place-items: center;
+  grid-template-columns: repeat(3, 0.625rem);
+  gap: 0.3125rem;
 }
 
-.route-loader__orbit {
-  position: absolute;
-  border: 1px solid color-mix(in srgb, var(--app-loader) 18%, transparent);
-  border-radius: 50%;
-}
-
-.route-loader__orbit--outer {
-  inset: 0;
-  border-top-color: var(--app-loader);
-  animation: route-loader-spin 2.4s linear infinite;
-}
-
-.route-loader__orbit--inner {
-  inset: 0.65rem;
-  border-style: dashed;
-  opacity: 0.65;
-  animation: route-loader-spin 8s linear infinite reverse;
-}
-
-.route-loader__logo {
-  width: 4.5rem;
-  max-width: 70vw;
-  height: auto;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--app-loader) 18%, transparent));
-  animation: route-loader-float 1.7s ease-in-out infinite;
-}
-
-.route-loader__progress {
-  width: 12rem;
-  height: 3px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--app-loader) 12%, white);
-}
-
-.route-loader__progress span {
-  display: block;
-  width: 32%;
-  height: 100%;
-  border-radius: inherit;
+.route-loader__grid span {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
   background: var(--app-loader);
-  animation: route-loader-progress 1.15s ease-in-out infinite;
+  opacity: 0.14;
+  animation: route-loader-wave 1.2s ease-in-out infinite;
 }
 
 .route-loader__label {
   color: #6b7280;
-  font-size: 0.7rem;
+  font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-@keyframes route-loader-spin {
-  to {
-    transform: rotate(360deg);
+/* each tile brightens and lifts slightly, then fades back */
+@keyframes route-loader-wave {
+  0%, 60%, 100% {
+    opacity: 0.14;
+    transform: scale(0.85);
   }
-}
-
-@keyframes route-loader-float {
-  50% {
-    transform: translateY(-5px) scale(1.04);
-  }
-}
-
-@keyframes route-loader-progress {
-  from {
-    transform: translateX(-320%);
-  }
-
-  to {
-    transform: translateX(320%);
-  }
-}
-
-@keyframes route-loader-drift {
-  to {
-    transform: translate3d(12%, -8%, 0) scale(1.15);
+  30% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
 @keyframes route-loader-enter {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.96);
+    transform: translateY(6px);
   }
-
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
+/* reduced motion: a steady grid, no wave */
 @media (prefers-reduced-motion: reduce) {
-  .route-loader__ambient::before,
-  .route-loader__ambient::after,
   .route-loader__content,
-  .route-loader__orbit,
-  .route-loader__logo,
-  .route-loader__progress span {
+  .route-loader__grid span {
     animation: none;
   }
+  .route-loader__grid span {
+    opacity: 0.5;
+  }
+}
+
+
+/* ---------- sidebar icon chips: the small boxes behind the menu icons (src/components/layout/sidebar.tsx) ---------- */
+/* A clean white chip that pops off the light sidebar (the dark sidebar has its own version below): a hairline edge with a hint of the theme colour,
+   a soft drop shadow and a thin top highlight. The icon inside is drawn in the theme colour so it reads on white. */
+
+.sidebar-icon-box {
+  background: #ffffff;
+  /* a hairline edge: half a pixel on sharp (high-density) screens; standard screens round it up to 1px,
+     so the colour is kept light as well */
+  border: 0.5px solid color-mix(in srgb, var(--app-brand) 8%, #eef0f3);
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 5%),
+    0 1px 2px color-mix(in srgb, var(--app-brand) 3%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 45%);
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+/* the icon on the white chip (wins over the row's text colour, which is light on the dark sidebar) */
+.sidebar-icon-box:not(.sidebar-icon-box--active) svg {
+  color: var(--app-brand);
+  opacity: 1;
+}
+
+/* hovering the row lifts the chip a little more, with a soft theme-coloured glow */
+.group:hover .sidebar-icon-box:not(.sidebar-icon-box--active) {
+  border-color: color-mix(in srgb, var(--app-brand) 40%, #e5e7eb);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    0 1px 4px color-mix(in srgb, var(--app-brand) 7%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 45%);
+  transform: translateY(-1px);
+}
+
+/* the dark sidebar: pure white glares there, so the chip is a flat slate tile a few shades lighter than the sidebar,
+   with a neutral edge and a soft shadow; the icon is a lighter tint of the theme colour */
+[data-sidebar='dark'] .sidebar-icon-box {
+  /* flat slate, neutral hairline edge: no theme colour in the tile itself, so nothing glows inside it */
+  background: #3c485b;
+  /* the dark sidebar keeps a full 1px edge (the light sidebar uses a half-pixel hairline) */
+  border-width: 1px;
+  border-color: rgb(255 255 255 / 9%);
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 11%),
+    0 1px 2px rgb(0 0 0 / 6%);
+}
+
+[data-sidebar='dark'] .sidebar-icon-box:not(.sidebar-icon-box--active) svg {
+  /* a muted tint of the theme colour: mostly soft grey-blue, so the icon reads calm on the slate tile */
+  color: color-mix(in srgb, var(--app-brand) 25%, #cbd5e1);
+}
+
+[data-sidebar='dark'] .group:hover .sidebar-icon-box:not(.sidebar-icon-box--active) {
+  /* hover: a shade lighter, and only now a hint of the theme colour on the edge */
+  background: #434f63;
+  border-color: color-mix(in srgb, var(--app-brand) 35%, rgb(255 255 255 / 8%));
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 11%),
+    0 1px 4px rgb(0 0 0 / 7%);
+}
+
+/* the current page: filled with the brand colour and a soft brand glow (on both sidebars) */
+.sidebar-icon-box--active,
+[data-sidebar='dark'] .sidebar-icon-box--active {
+  background: var(--app-brand);
+  border-color: transparent;
+  box-shadow:
+    0 1px 3px color-mix(in srgb, var(--app-brand) 11%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group:hover .sidebar-icon-box {
+    transform: none;
+  }
+}
+
+
+/* ---------- sidebar sub navs: a line under the main nav's icon with a dot per link (sidebar.tsx) ---------- */
+
+.sub-nav-line {
+  /* fainter than the sidebar border: about half strength */
+  background: color-mix(in srgb, var(--app-sidebar-border) 55%, transparent);
+}
+
+/* the dot sits on the line; its ring is the row's own background, so the line looks cut around it */
+.sub-nav-dot {
+  width: 6px;
+  height: 6px;
+  /* a soft, muted dot (the current page's dot stays full theme colour) */
+  background: color-mix(in srgb, var(--app-sidebar-muted) 50%, var(--app-sidebar-background));
+  box-shadow: 0 0 0 2px var(--app-sidebar-background);
+  transition: background-color 150ms ease, width 150ms ease, height 150ms ease, box-shadow 150ms ease;
+}
+
+/* hover: the row turns the highlight colour, so the ring follows it, and the dot takes the theme colour */
+.group:hover .sub-nav-dot {
+  background: var(--app-brand);
+  box-shadow: 0 0 0 2px var(--app-sidebar-highlight);
+}
+
+/* the current page: a bigger theme-coloured dot with a soft halo */
+.sub-nav-dot--active,
+.group:hover .sub-nav-dot--active {
+  width: 7px;
+  height: 7px;
+  background: var(--app-brand);
+  box-shadow:
+    0 0 0 2px var(--app-sidebar-highlight),
+    0 0 0 3px color-mix(in srgb, var(--app-brand) 28%, transparent);
+}
+
+
+/* ---------- the collapsed rail's pop-up menus (sidebar.tsx RailSection): the sidebar's own colours ---------- */
+/* built from the --app-sidebar-* variables, so a dark sidebar gets a dark menu and a light sidebar a light one */
+
+.rail-menu {
+  background: var(--app-sidebar-background);
+  border: 1px solid var(--app-sidebar-border);
+  color: var(--app-sidebar-text);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 10%);
+}
+
+.rail-menu__label {
+  color: var(--app-sidebar-text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rail-menu__item {
+  color: var(--app-sidebar-text);
+  font-size: 13.25px;
+  font-weight: 300;
+}
+
+.rail-menu__item[data-hovered] {
+  background: var(--app-sidebar-highlight);
+  color: var(--app-sidebar-highlight-text);
+}
+
+/* the current page: a soft wash of the theme colour, the text in the theme colour (lighter on the dark sidebar) */
+.rail-menu__item--active,
+.rail-menu__item--active[data-hovered] {
+  background: color-mix(in srgb, var(--app-brand) 14%, var(--app-sidebar-background));
+  color: var(--app-brand);
+  font-weight: 400;
+}
+
+[data-sidebar='dark'] .rail-menu__item--active,
+[data-sidebar='dark'] .rail-menu__item--active[data-hovered] {
+  background: color-mix(in srgb, var(--app-brand) 22%, var(--app-sidebar-background));
+  color: color-mix(in srgb, var(--app-brand) 55%, #ffffff);
+}
+
+/* the small dot before each link, like the full sidebar's stepper */
+.rail-menu__dot {
+  width: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--app-sidebar-muted) 55%, var(--app-sidebar-background));
+}
+
+.rail-menu__item[data-hovered] .rail-menu__dot {
+  background: var(--app-brand);
+}
+
+.rail-menu__dot--active,
+.rail-menu__item[data-hovered] .rail-menu__dot--active {
+  width: 8px;
+  height: 8px;
+  background: var(--app-brand);
 }
 
 

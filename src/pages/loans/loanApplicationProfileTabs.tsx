@@ -54,6 +54,8 @@ export type ApplicationView = {
   collaterals: ViewCollateral[]
   credit: (WfCredit & { assessedByName: string }) | null
   levels: ViewLevel[]
+  /** the hierarchy this loan follows: its own (approvePolicyId) or, when none was saved, the default */
+  hierarchy: { name: string; ownPolicy: boolean } | null
   contract: WfContract | null
   loan: WfLoan | null
   /** oldest first */
@@ -396,6 +398,17 @@ export function ApprovalsTab({ view }: { view: ApplicationView }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <SectionTitle>Approval hierarchy</SectionTitle>
+          {/* which hierarchy this loan follows, and whether it was saved on the loan or comes from the default */}
+          {view.hierarchy && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <Text size="sm" fw={600} className="text-brand">
+                {view.hierarchy.name}
+              </Text>
+              <Badge size="xs" radius="sm" variant="light" color={view.hierarchy.ownPolicy ? 'brand' : 'gray'}>
+                {view.hierarchy.ownPolicy ? 'Set on this loan' : 'Default hierarchy'}
+              </Badge>
+            </div>
+          )}
           <p className="mb-3 text-xs text-gray-500">
             Each level must approve in order. A rejection at any level stops the application.
           </p>

@@ -333,7 +333,7 @@ function FilterTitle({
               setOpened((o) => !o)
             }}
           >
-            <AppIcon name="filter" size={10} />
+            <AppIcon name="filter" size={10} strokeWidth={1.5} />
           </ActionIcon>
         </Popover.Target>
         <Popover.Dropdown p="sm" onClick={(e) => e.stopPropagation()}>

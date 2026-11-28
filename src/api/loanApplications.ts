@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, api } from './client'
 import { queryClient } from './queryClient'
+import { useApprovalChains } from './approvalHierarchy'
 
 // Loan application drafts: "Loan Application Process Tracking" in the API document.
 // A draft is created by /start, updated by /progress after each wizard step, resumed by /latest
@@ -35,6 +36,10 @@ const applicationRowSchema = z.object({
   createdAt: z.string().nullish(),
   updatedAt: z.string().nullish(),
   submittedAt: z.string().nullish(),
+  // API v5: the approval hierarchy this application follows (loan_application.approve_policy_id)
+  approvePolicyId: z.number().nullish(),
+  // the same link, if a response nests it as an object instead of an id
+  approvePolicy: z.object({ id: z.number() }).nullish(),
 })
 
 type ApplicationRow = z.infer<typeof applicationRowSchema>
@@ -60,6 +65,8 @@ export type LoanDraft = {
   /** yyyy-MM-dd */
   createdAt: string
   submittedAt: string | null
+  /** its own approval hierarchy (API v5); null = the default hierarchy applies */
+  approvePolicyId: number | null
 }
 
 const toDraft = (r: ApplicationRow): LoanDraft => {
@@ -83,6 +90,7 @@ const toDraft = (r: ApplicationRow): LoanDraft => {
     updatedAt: r.updatedAt ?? r.createdAt ?? '',
     createdAt: (r.createdAt ?? '').slice(0, 10),
     submittedAt: r.submittedAt ?? null,
+    approvePolicyId: r.approvePolicyId ?? r.approvePolicy?.id ?? null,
   }
 }
 
@@ -118,6 +126,8 @@ export type ProgressBody = {
   guarantorRequired?: boolean
   collateralRequired?: boolean
   creditAssessmentRequired?: boolean
+  /** the approval hierarchy this application follows (API v5, loan_application.approve_policy_id) */
+  approvePolicyId?: number
 }
 
 // "Any provided fields are updated", so fields still empty in the form are simply left out
@@ -404,7 +414,7 @@ export async function saveGuarantor(applicationId: number, id: number | null, f:
 export const deleteGuarantor = (id: number) => api<unknown>(`/api/guarantors/${id}`, { method: 'DELETE' })
 
 // POST .../guarantors/{guarantorId}/otp/send: emails a 6-digit code to the guarantor's saved email.
-// Valid 24 hours, single use, 5 attempts, a new one only after 60 seconds
+// Valid 5 minutes (API v5), single use, 5 attempts, a new one only after 60 seconds
 export const sendGuarantorOtp = (applicationId: number, guarantorId: number) =>
   api<unknown>(`/api/loan-origination/applications/${applicationId}/guarantors/${guarantorId}/otp/send`, {
     method: 'POST',
@@ -790,6 +800,49 @@ export async function decideApplication(
     void refresh()
     void queryClient.invalidateQueries({ queryKey: approvalsKey })
   }
+}
+
+/* ---------- the approval queue, shared by the dashboard, the sidebar count and the bell alert ---------- */
+
+export type AwaitingApproval = {
+  id: number
+  applicationNo: string
+  applicantId: number
+  requestedAmount: number
+  /** when it joined the queue: submitted, else created */
+  since: string
+  /** the level it waits at now */
+  levelName: string
+  requiredRole: string
+}
+
+// The same rule as the Approvals page's "Awaiting" tab: status CREDIT_APPROVED or PENDING_APPROVAL, no level has
+// rejected it, and a level of its own chain (approvePolicyId, else the default) is still without a decision
+// (the first such level is the current one).
+export function useAwaitingApprovals() {
+  const list = useLoanApplications()
+  const decisions = useApprovalDecisions()
+  const chains = useApprovalChains()
+
+  const rows: AwaitingApproval[] = []
+  for (const d of list.data ?? []) {
+    const status = d.status.toUpperCase()
+    if (status !== 'CREDIT_APPROVED' && status !== 'PENDING_APPROVAL') continue
+    const decided = (decisions.data ?? []).filter((x) => x.applicationId === d.id)
+    if (decided.some((x) => x.decision.includes('REJECT'))) continue
+    const current = chains.chainOf(d.approvePolicyId).find((l) => !decided.some((x) => x.levelId === l.id))
+    if (!current) continue
+    rows.push({
+      id: d.id,
+      applicationNo: d.applicationNo || `#${d.id}`,
+      applicantId: d.applicantId,
+      requestedAmount: d.requestedAmount ?? 0,
+      since: d.submittedAt || d.createdAt,
+      levelName: current.levelName,
+      requiredRole: current.requiredRole,
+    })
+  }
+  return { rows, isLoading: list.isLoading || decisions.isLoading || chains.isLoading }
 }
 
 /* ---------- POST /api/loan-applications/{id}/finalize ---------- */
